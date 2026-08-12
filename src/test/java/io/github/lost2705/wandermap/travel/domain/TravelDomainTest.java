@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -17,6 +18,16 @@ class TravelDomainTest {
     @Test
     void normalizesCityNamesByTrimmingCollapsingWhitespaceAndLowercasing() {
         assertThat(City.normalizeName("  New\t York   City  ")).isEqualTo("new york city");
+    }
+
+    @Test
+    void rejectsCoordinatesOutsideTheSupportedWorldBounds() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new CityLocation(new BigDecimal("90.1"), BigDecimal.ZERO))
+                .withMessage("latitude must be between -90 and 90");
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                new CityLocation(BigDecimal.ZERO, new BigDecimal("180.1")))
+                .withMessage("longitude must be between -180 and 180");
     }
 
     @Test

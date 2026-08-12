@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.lost2705.wandermap.travel.domain.City;
+import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
@@ -80,6 +81,44 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         Trip reloadedTrip = tripRepository.findById(trip.getId()).orElseThrow();
         assertThat(reloadedTrip.getStartDate()).isEqualTo(startDate);
         assertThat(reloadedTrip.getEndDate()).isEqualTo(endDate);
+    }
+
+    @Test
+    void persistsNullableCityCoordinatesWithTheExpectedPrecision() {
+        Country italy = countryRepository.getReferenceById("IT");
+        City rome = cityRepository.saveAndFlush(new City(
+                italy,
+                "Rome coordinates " + UUID.randomUUID(),
+                new CityLocation(new java.math.BigDecimal("41.9028"), new java.math.BigDecimal("12.4964"))));
+        entityManager.clear();
+
+        City reloadedCity = cityRepository.findById(rome.getId()).orElseThrow();
+
+        assertThat(reloadedCity.getLatitude()).isEqualByComparingTo("41.902800");
+        assertThat(reloadedCity.getLongitude()).isEqualByComparingTo("12.496400");
+    }
+
+    @Test
+    void databaseRejectsOutOfRangeCityCoordinates() {
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        """
+                        INSERT INTO cities (id, country_code, name, normalized_name, latitude, longitude)
+                        VALUES (?, 'IT', 'Invalid latitude', 'invalid latitude', 90.1, 0)
+                        """,
+                        UUID.randomUUID()))
+                .hasMessageContaining("ck_cities_latitude_range");
+
+        TestTransaction.flagForRollback();
+        TestTransaction.end();
+        TestTransaction.start();
+
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        """
+                        INSERT INTO cities (id, country_code, name, normalized_name, latitude, longitude)
+                        VALUES (?, 'IT', 'Invalid longitude', 'invalid longitude', 0, 180.1)
+                        """,
+                        UUID.randomUUID()))
+                .hasMessageContaining("ck_cities_longitude_range");
     }
 
     @Test

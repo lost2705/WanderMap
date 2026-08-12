@@ -4,6 +4,7 @@ import io.github.lost2705.wandermap.travel.api.dto.AddTripStopRequest;
 import io.github.lost2705.wandermap.travel.api.dto.CreateTripRequest;
 import io.github.lost2705.wandermap.travel.api.dto.MoveTripStopRequest;
 import io.github.lost2705.wandermap.travel.api.dto.TripResponse;
+import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripSummaryResponse;
 import io.github.lost2705.wandermap.travel.api.dto.UpdateTripRequest;
@@ -47,6 +48,11 @@ public class TripController {
     @GetMapping
     public List<TripSummaryResponse> listTrips() {
         return tripService.listTrips().stream().map(TravelApiMapper::toSummaryResponse).toList();
+    }
+
+    @GetMapping("/map-overview")
+    public TripMapOverviewResponse mapOverview() {
+        return TravelApiMapper.toMapOverviewResponse(tripService.listTripsForMapOverview());
     }
 
     @GetMapping("/{tripId}")
