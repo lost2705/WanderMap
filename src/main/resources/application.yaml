@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: wandermap
+  datasource:
+    url: ${WANDERMAP_DB_URL:jdbc:postgresql://localhost:5432/wandermap}
+    username: ${WANDERMAP_DB_USERNAME:wandermap}
+    password: ${WANDERMAP_DB_PASSWORD:wandermap}
+
+management:
+  endpoints:
+    web:
+      base-path: /api
+      exposure:
+        include: health
+
