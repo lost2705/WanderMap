@@ -14,7 +14,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A city in a trip itinerary. Position is 1-based and its management belongs to a later use case.
+ * A city in a trip itinerary. {@link Trip} exclusively controls its position.
  */
 @Entity
 @Table(
@@ -45,7 +45,7 @@ public class TripStop {
     protected TripStop() {
     }
 
-    public TripStop(Trip trip, City city, int position) {
+    TripStop(Trip trip, City city, int position) {
         if (position < 1) {
             throw new IllegalArgumentException("trip stop position must be at least 1");
         }
@@ -70,5 +70,12 @@ public class TripStop {
 
     public int getPosition() {
         return position;
+    }
+
+    void changePosition(int position) {
+        if (position < 1) {
+            throw new IllegalArgumentException("trip stop position must be at least 1");
+        }
+        this.position = position;
     }
 }
