@@ -5,6 +5,10 @@ spring:
     url: ${WANDERMAP_DB_URL:jdbc:postgresql://localhost:5432/wandermap}
     username: ${WANDERMAP_DB_USERNAME:wandermap}
     password: ${WANDERMAP_DB_PASSWORD:wandermap}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 management:
   endpoints:
@@ -12,4 +16,3 @@ management:
       base-path: /api
       exposure:
         include: health
-
