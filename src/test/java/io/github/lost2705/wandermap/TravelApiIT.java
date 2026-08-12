@@ -57,6 +57,21 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         addStop(tripId, "Bologna");
         JsonNode veniceStop = addStop(tripId, "Venice");
 
+        assertThat(florenceStop.path("city").path("latitude").asDouble()).isEqualTo(43.7696d);
+        assertThat(florenceStop.path("city").path("longitude").asDouble()).isEqualTo(11.2558d);
+
+        HttpResponse<String> overviewResponse = request("GET", "/api/trips/map-overview", null);
+        assertThat(overviewResponse.statusCode()).isEqualTo(200);
+        JsonNode overview = json(overviewResponse);
+        assertThat(overview.path("visitedCountryCodes")).anySatisfy(code ->
+                assertThat(code.asText()).isEqualTo("IT"));
+        assertThat(overview.path("markers")).anySatisfy(marker -> {
+            assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
+            assertThat(marker.path("cityName").asText()).isEqualTo("Florence");
+            assertThat(marker.path("latitude").asDouble()).isEqualTo(43.7696d);
+            assertThat(marker.path("country").path("code").asText()).isEqualTo("IT");
+        });
+
         assertStops(getTrip(tripId), "Rome", "Florence", "Bologna", "Venice");
 
         HttpResponse<String> moveResponse = request(

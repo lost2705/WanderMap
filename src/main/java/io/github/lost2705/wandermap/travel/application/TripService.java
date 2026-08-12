@@ -12,21 +12,30 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TripService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(TripService.class);
+
     private final TripRepository tripRepository;
     private final CountryRepository countryRepository;
     private final CityRepository cityRepository;
+    private final CityLocationResolver cityLocationResolver;
 
     public TripService(
-            TripRepository tripRepository, CountryRepository countryRepository, CityRepository cityRepository) {
+            TripRepository tripRepository,
+            CountryRepository countryRepository,
+            CityRepository cityRepository,
+            CityLocationResolver cityLocationResolver) {
         this.tripRepository = tripRepository;
         this.countryRepository = countryRepository;
         this.cityRepository = cityRepository;
+        this.cityLocationResolver = cityLocationResolver;
     }
 
     @Transactional
@@ -42,6 +51,11 @@ public class TripService {
     @Transactional(readOnly = true)
     public List<Trip> listTrips() {
         return tripRepository.findAllWithStopsOrderByNameAscIdAsc();
+    }
+
+    @Transactional(readOnly = true)
+    public List<Trip> listTripsForMapOverview() {
+        return tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc();
     }
 
     @Transactional
@@ -90,7 +104,29 @@ public class TripService {
         String normalizedName = City.normalizeName(cityName);
 
         return cityRepository.findByCountry_CodeAndNormalizedName(country.getCode(), normalizedName)
-                .orElseGet(() -> cityRepository.save(new City(country, cityName)));
+                .map(this::enrichLocationIfMissing)
+                .orElseGet(() -> {
+                    City city = new City(country, cityName);
+                    enrichLocationIfMissing(city);
+                    return cityRepository.save(city);
+                });
+    }
+
+    private City enrichLocationIfMissing(City city) {
+        if (city.hasLocation()) {
+            return city;
+        }
+
+        try {
+            cityLocationResolver.resolve(city.getCountry().getCode(), city.getNormalizedName()).ifPresent(city::applyLocation);
+        } catch (RuntimeException exception) {
+            LOGGER.warn(
+                    "Could not resolve a map location for city {} in {}: {}",
+                    city.getName(),
+                    city.getCountry().getCode(),
+                    exception.getMessage());
+        }
+        return city;
     }
 
     private static String normalizeCountryCode(String countryCode) {

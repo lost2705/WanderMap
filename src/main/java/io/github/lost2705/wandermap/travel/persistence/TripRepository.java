@@ -22,4 +22,14 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
 
     @Query("SELECT DISTINCT trip FROM Trip trip LEFT JOIN FETCH trip.stops ORDER BY trip.name ASC, trip.id ASC")
     List<Trip> findAllWithStopsOrderByNameAscIdAsc();
+
+    @Query("""
+            SELECT DISTINCT trip
+            FROM Trip trip
+            LEFT JOIN FETCH trip.stops stop
+            LEFT JOIN FETCH stop.city city
+            LEFT JOIN FETCH city.country
+            ORDER BY trip.name ASC, trip.id ASC
+            """)
+    List<Trip> findAllWithStopsAndCitiesOrderByNameAscIdAsc();
 }

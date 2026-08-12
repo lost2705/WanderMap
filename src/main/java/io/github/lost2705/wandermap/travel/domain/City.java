@@ -11,6 +11,7 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -48,14 +49,25 @@ public class City {
     @Size(max = 160)
     private String normalizedName;
 
+    @Column(name = "latitude", precision = 8, scale = 6)
+    private BigDecimal latitude;
+
+    @Column(name = "longitude", precision = 9, scale = 6)
+    private BigDecimal longitude;
+
     protected City() {
     }
 
     public City(Country country, String name) {
+        this(country, name, null);
+    }
+
+    public City(Country country, String name, CityLocation location) {
         this.id = UUID.randomUUID();
         this.country = Objects.requireNonNull(country, "country must not be null");
         this.name = requireDisplayName(name);
         this.normalizedName = normalizeName(name);
+        applyLocation(location);
     }
 
     public UUID getId() {
@@ -72,6 +84,26 @@ public class City {
 
     public String getNormalizedName() {
         return normalizedName;
+    }
+
+    public BigDecimal getLatitude() {
+        return latitude;
+    }
+
+    public BigDecimal getLongitude() {
+        return longitude;
+    }
+
+    public boolean hasLocation() {
+        return latitude != null && longitude != null;
+    }
+
+    public void applyLocation(CityLocation location) {
+        if (location == null) {
+            return;
+        }
+        this.latitude = location.latitude();
+        this.longitude = location.longitude();
     }
 
     public static String normalizeName(String name) {
