@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
@@ -106,10 +107,11 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
                 UUID.randomUUID(), trip.getId(), city.getId(), 1);
 
-        assertThatThrownBy(() -> jdbcTemplate.update(
-                        "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
-                        UUID.randomUUID(), trip.getId(), city.getId(), 1))
-                .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+        jdbcTemplate.update(
+                "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
+                UUID.randomUUID(), trip.getId(), city.getId(), 1);
+
+        assertThatThrownBy(() -> jdbcTemplate.execute("SET CONSTRAINTS uq_trip_stops_trip_position IMMEDIATE"))
                 .hasMessageContaining("uq_trip_stops_trip_position");
     }
 
@@ -129,8 +131,67 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         assertThat(stopCount).isEqualTo(2);
     }
 
+    @Test
+    void persistsTripStopReorderAndRemovalThroughAggregate() {
+        City rome = persistCity("Rome " + UUID.randomUUID());
+        City florence = persistCity("Florence " + UUID.randomUUID());
+        City bologna = persistCity("Bologna " + UUID.randomUUID());
+        City venice = persistCity("Venice " + UUID.randomUUID());
+        Trip trip = new Trip("Italy itinerary", null, null);
+        trip.addStop(rome);
+        trip.addStop(florence);
+        trip.addStop(bologna);
+        trip.addStop(venice);
+        UUID tripId = trip.getId();
+        UUID romeStopId = trip.getStops().get(0).getId();
+        UUID florenceStopId = trip.getStops().get(1).getId();
+        UUID bolognaStopId = trip.getStops().get(2).getId();
+        UUID veniceStopId = trip.getStops().get(3).getId();
+
+        tripRepository.saveAndFlush(trip);
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        TestTransaction.start();
+        entityManager.clear();
+
+        Trip reloadedTrip = tripRepository.findById(tripId).orElseThrow();
+        assertStops(reloadedTrip, romeStopId, florenceStopId, bolognaStopId, veniceStopId);
+
+        reloadedTrip.moveStop(veniceStopId, 2);
+        entityManager.flush();
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        TestTransaction.start();
+        entityManager.clear();
+
+        Trip reorderedTrip = tripRepository.findById(tripId).orElseThrow();
+        assertStops(reorderedTrip, romeStopId, veniceStopId, florenceStopId, bolognaStopId);
+
+        reorderedTrip.removeStop(florenceStopId);
+        entityManager.flush();
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        TestTransaction.start();
+        entityManager.clear();
+
+        Trip compactedTrip = tripRepository.findById(tripId).orElseThrow();
+        assertStops(compactedTrip, romeStopId, veniceStopId, bolognaStopId);
+        assertThat(entityManager.find(TripStop.class, florenceStopId)).isNull();
+    }
+
     private City persistCity(String name) {
         Country italy = countryRepository.getReferenceById("IT");
         return cityRepository.saveAndFlush(new City(italy, name));
+    }
+
+    private static void assertStops(Trip trip, UUID... stopIds) {
+        assertThat(trip.getStops()).extracting(TripStop::getId).containsExactly(stopIds);
+        assertThat(trip.getStops()).extracting(TripStop::getPosition)
+                .containsExactly(java.util.stream.IntStream.rangeClosed(1, stopIds.length)
+                        .boxed()
+                        .toArray(Integer[]::new));
     }
 }
