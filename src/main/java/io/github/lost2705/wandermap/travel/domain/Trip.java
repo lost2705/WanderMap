@@ -1,12 +1,18 @@
 package io.github.lost2705.wandermap.travel.domain;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -30,6 +36,10 @@ public class Trip {
 
     @Column(name = "end_date")
     private LocalDate endDate;
+
+    @OneToMany(mappedBy = "trip", cascade = {CascadeType.PERSIST, CascadeType.MERGE}, orphanRemoval = true)
+    @OrderBy("position ASC")
+    private List<TripStop> stops = new ArrayList<>();
 
     protected Trip() {
     }
@@ -56,6 +66,58 @@ public class Trip {
 
     public LocalDate getEndDate() {
         return endDate;
+    }
+
+    /**
+     * Returns a read-only snapshot of the itinerary in its current order.
+     */
+    public List<TripStop> getStops() {
+        return List.copyOf(stops);
+    }
+
+    public TripStop addStop(City city) {
+        TripStop stop = new TripStop(
+                this, Objects.requireNonNull(city, "city must not be null"), stops.size() + 1);
+        stops.add(stop);
+        renumberStops();
+        return stop;
+    }
+
+    public void removeStop(UUID stopId) {
+        TripStop stop = findStop(stopId);
+        stops.remove(stop);
+        renumberStops();
+    }
+
+    public void moveStop(UUID stopId, int targetPosition) {
+        TripStop stop = findStop(stopId);
+        if (targetPosition < 1 || targetPosition > stops.size()) {
+            throw new IllegalArgumentException("target position must be between 1 and " + stops.size());
+        }
+
+        int currentIndex = stops.indexOf(stop);
+        int targetIndex = targetPosition - 1;
+        if (currentIndex == targetIndex) {
+            return;
+        }
+
+        stops.remove(currentIndex);
+        stops.add(targetIndex, stop);
+        renumberStops();
+    }
+
+    private TripStop findStop(UUID stopId) {
+        Objects.requireNonNull(stopId, "stop id must not be null");
+        return stops.stream()
+                .filter(stop -> stopId.equals(stop.getId()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("trip does not contain stop " + stopId));
+    }
+
+    private void renumberStops() {
+        for (int index = 0; index < stops.size(); index++) {
+            stops.get(index).changePosition(index + 1);
+        }
     }
 
     private static void validateDateRange(LocalDate startDate, LocalDate endDate) {

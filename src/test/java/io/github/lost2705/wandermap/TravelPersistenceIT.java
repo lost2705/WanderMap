@@ -11,7 +11,6 @@ import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceException;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -103,12 +102,13 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         City city = persistCity("Rome " + UUID.randomUUID());
         Trip trip = tripRepository.saveAndFlush(new Trip("Italy itinerary", null, null));
 
-        entityManager.persist(new TripStop(trip, city, 1));
-        entityManager.flush();
-        entityManager.persist(new TripStop(trip, city, 1));
+        jdbcTemplate.update(
+                "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
+                UUID.randomUUID(), trip.getId(), city.getId(), 1);
 
-        assertThatThrownBy(entityManager::flush)
-                .isInstanceOf(PersistenceException.class)
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                        "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
+                        UUID.randomUUID(), trip.getId(), city.getId(), 1))
                 .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
                 .hasMessageContaining("uq_trip_stops_trip_position");
     }
@@ -116,11 +116,11 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void permitsDuplicateCitiesAtDifferentTripStopPositions() {
         City city = persistCity("Florence " + UUID.randomUUID());
-        Trip trip = tripRepository.saveAndFlush(new Trip("Repeated Florence", null, null));
+        Trip trip = new Trip("Repeated Florence", null, null);
 
-        entityManager.persist(new TripStop(trip, city, 1));
-        entityManager.persist(new TripStop(trip, city, 2));
-        entityManager.flush();
+        trip.addStop(city);
+        trip.addStop(city);
+        tripRepository.saveAndFlush(trip);
 
         Long stopCount = entityManager.createQuery(
                         "SELECT COUNT(stop) FROM TripStop stop WHERE stop.trip = :trip", Long.class)
