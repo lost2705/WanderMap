@@ -1,6 +1,6 @@
 # WanderMap
 
-WanderMap is an AI-native personal travel map. This repository currently contains the Milestone 0.1 backend foundation only.
+WanderMap is an AI-native personal travel map. It currently exposes the Milestone 0.2 Travel Core REST API.
 
 ## Prerequisites
 
@@ -54,3 +54,23 @@ curl http://localhost:8080/api/health
 ```
 
 The endpoint returns HTTP 200 with a response containing `"status":"UP"` when the application and database are healthy.
+
+## Travel Core API quick start
+
+Create a trip, add a stop, and retrieve its itinerary:
+
+```bash
+curl -X POST http://localhost:8080/api/trips \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Italy 2026","startDate":"2026-05-10","endDate":"2026-05-21"}'
+
+curl -X POST http://localhost:8080/api/trips/{tripId}/stops \
+  -H "Content-Type: application/json" \
+  -d '{"countryCode":"IT","cityName":"Rome"}'
+
+curl http://localhost:8080/api/trips/{tripId}
+curl http://localhost:8080/api/countries
+curl http://localhost:8080/api/health
+```
+
+`PATCH /api/trips/{tripId}` replaces trip details: `name` is required, while omitted or `null` dates clear the corresponding date. It is not JSON Merge Patch. Unknown JSON fields are rejected with a `400` ProblemDetail response.
