@@ -45,11 +45,8 @@ public class Trip {
     }
 
     public Trip(String name, LocalDate startDate, LocalDate endDate) {
-        validateDateRange(startDate, endDate);
         this.id = UUID.randomUUID();
-        this.name = requireName(name);
-        this.startDate = startDate;
-        this.endDate = endDate;
+        updateDetails(name, startDate, endDate);
     }
 
     public UUID getId() {
@@ -66,6 +63,24 @@ public class Trip {
 
     public LocalDate getEndDate() {
         return endDate;
+    }
+
+    public void rename(String name) {
+        this.name = requireName(name);
+    }
+
+    public void changeDates(LocalDate startDate, LocalDate endDate) {
+        validateDateRange(startDate, endDate);
+        this.startDate = startDate;
+        this.endDate = endDate;
+    }
+
+    public void updateDetails(String name, LocalDate startDate, LocalDate endDate) {
+        String normalizedName = requireName(name);
+        validateDateRange(startDate, endDate);
+        this.name = normalizedName;
+        this.startDate = startDate;
+        this.endDate = endDate;
     }
 
     /**
@@ -111,7 +126,7 @@ public class Trip {
         return stops.stream()
                 .filter(stop -> stopId.equals(stop.getId()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("trip does not contain stop " + stopId));
+                .orElseThrow(() -> new TripStopNotFoundException(stopId));
     }
 
     private void renumberStops() {
