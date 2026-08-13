@@ -52,11 +52,13 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(createResponse.headers().firstValue("Location"))
                 .hasValueSatisfying(location -> assertThat(location).contains("/api/trips/" + tripId));
 
-        addStop(tripId, "Rome");
+        JsonNode romeStop = addStop(tripId, "Rome");
         JsonNode florenceStop = addStop(tripId, "Florence");
         addStop(tripId, "Bologna");
         JsonNode veniceStop = addStop(tripId, "Venice");
 
+        assertThat(romeStop.path("city").path("latitude").asDouble()).isEqualTo(41.9028d);
+        assertThat(romeStop.path("city").path("longitude").asDouble()).isEqualTo(12.4964d);
         assertThat(florenceStop.path("city").path("latitude").asDouble()).isEqualTo(43.7696d);
         assertThat(florenceStop.path("city").path("longitude").asDouble()).isEqualTo(11.2558d);
 
@@ -68,6 +70,7 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(overview.path("markers")).anySatisfy(marker -> {
             assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
             assertThat(marker.path("cityName").asText()).isEqualTo("Florence");
+            assertThat(marker.path("position").asInt()).isEqualTo(2);
             assertThat(marker.path("latitude").asDouble()).isEqualTo(43.7696d);
             assertThat(marker.path("country").path("code").asText()).isEqualTo("IT");
         });
@@ -155,6 +158,26 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(deleteResponse.statusCode()).isEqualTo(204);
     }
 
+    @Test
+    void keepsUnresolvedCitiesValidWithoutMapMarkers() throws Exception {
+        String tripId = createTrip("Unresolved location " + UUID.randomUUID());
+        JsonNode pattayaStop = addStopWithCountry(tripId, "TH", "Pattaya");
+
+        assertThat(pattayaStop.path("city").path("latitude").isNull()).isTrue();
+        assertThat(pattayaStop.path("city").path("longitude").isNull()).isTrue();
+
+        HttpResponse<String> overviewResponse = request("GET", "/api/trips/map-overview", null);
+        assertThat(overviewResponse.statusCode()).isEqualTo(200);
+        JsonNode overview = json(overviewResponse);
+        assertThat(overview.path("visitedCountryCodes")).anySatisfy(code ->
+                assertThat(code.asText()).isEqualTo("TH"));
+        assertThat(overview.path("markers")).noneSatisfy(marker ->
+                assertThat(marker.path("tripId").asText()).isEqualTo(tripId));
+
+        HttpResponse<String> deleteResponse = request("DELETE", "/api/trips/" + tripId, null);
+        assertThat(deleteResponse.statusCode()).isEqualTo(204);
+    }
+
     private String createTrip(String name) throws Exception {
         HttpResponse<String> response = request("POST", "/api/trips", "{\"name\":\"" + name + "\"}");
         assertThat(response.statusCode()).isEqualTo(201);
@@ -162,10 +185,14 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
     }
 
     private JsonNode addStop(String tripId, String cityName) throws Exception {
+        return addStopWithCountry(tripId, "IT", cityName);
+    }
+
+    private JsonNode addStopWithCountry(String tripId, String countryCode, String cityName) throws Exception {
         HttpResponse<String> response = request(
                 "POST",
                 "/api/trips/" + tripId + "/stops",
-                "{\"countryCode\":\"IT\",\"cityName\":\"" + cityName + "\"}");
+                "{\"countryCode\":\"" + countryCode + "\",\"cityName\":\"" + cityName + "\"}");
         assertThat(response.statusCode()).isEqualTo(201);
         return json(response);
     }

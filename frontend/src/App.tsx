@@ -198,6 +198,7 @@ export default function App() {
         {!formMode && selectedTrip ? (
           <>
             <Itinerary
+              key={selectedTrip.id}
               countries={countries}
               isMutating={isMutating}
               trip={selectedTrip}

@@ -2,126 +2,190 @@ import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
 import type { Trip, TripMapOverview } from '../../types/travel'
-import { countryCodesFromOverview, markersForMap, markersForTrip } from './mapData'
+import {
+  countryCodesFromOverview,
+  countryFeatureFilter,
+  markersForMap,
+  selectedTripCameraTarget,
+  selectedTripCameraTargetKey,
+} from './mapData'
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const COUNTRY_BOUNDARIES_URL =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson'
+const WORLD_OVERVIEW_BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 85]]
+const WORLD_OVERVIEW_PADDING = 28
+const COUNTRY_FILL = '#f2a620'
+const COUNTRY_LINE = '#8b3d0b'
 
 interface MapViewProps {
   overview: TripMapOverview | null
   selectedTrip: Trip | null
 }
 
+interface CountryBoundaryData {
+  type: 'FeatureCollection'
+  features: CountryBoundaryFeature[]
+}
+
+interface CountryBoundaryFeature {
+  type: 'Feature'
+  properties: Record<string, unknown> | null
+  geometry: CountryGeometry
+}
+
+type CountryGeometry =
+  | { type: 'Polygon'; coordinates: number[][][] }
+  | { type: 'MultiPolygon'; coordinates: number[][][][] }
+
 export function MapView({ overview, selectedTrip }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRefs = useRef<Marker[]>([])
-  const [isReady, setIsReady] = useState(false)
-  const [mapFailure, setMapFailure] = useState<string | null>(null)
+  const selectedTripRef = useRef(selectedTrip)
+  const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
+  const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
+  const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
+  const visitedCountryCodes = countryCodesFromOverview(overview)
+  const visitedCountryCodesKey = visitedCountryCodes.join(',')
+  const cameraTarget = selectedTripCameraTarget(selectedTrip)
+  const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)
 
   useEffect(() => {
-    if (!mapElementRef.current || mapRef.current) {
+    selectedTripRef.current = selectedTrip
+  }, [selectedTrip])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    void fetchCountryBoundaries(controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setCountryBoundaryData(data)
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted && import.meta.env.DEV) {
+          console.warn('Could not load country boundaries; continuing without the country overlay.', error)
+        }
+      })
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    if (!mapElementRef.current) {
       return
     }
 
-    try {
-      const map = new maplibregl.Map({
-        container: mapElementRef.current,
-        style: MAP_STYLE_URL,
-        center: [12, 28],
-        zoom: 1.25,
-      })
-      map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
-      map.once('load', () => {
-        map.addSource('country-boundaries', { type: 'geojson', data: COUNTRY_BOUNDARIES_URL })
-        map.addLayer({
-          id: 'visited-countries-fill',
-          type: 'fill',
-          source: 'country-boundaries',
-          paint: { 'fill-color': '#f5b544', 'fill-opacity': 0.32 },
-        })
-        map.addLayer({
-          id: 'visited-countries-line',
-          type: 'line',
-          source: 'country-boundaries',
-          paint: { 'line-color': '#c87b16', 'line-width': 1.25, 'line-opacity': 0.8 },
-        })
-        mapRef.current = map
-        setIsReady(true)
-      })
-      map.on('error', () => {
-        setMapFailure('The map base could not be loaded. Check your internet connection and try again.')
-      })
-      mapRef.current = map
-    } catch {
-      setMapFailure('The map could not be initialized in this browser.')
+    const map = new maplibregl.Map({
+      container: mapElementRef.current,
+      style: MAP_STYLE_URL,
+      center: [0, 18],
+      zoom: -1,
+      minZoom: -2,
+      renderWorldCopies: false,
+    })
+    mapRef.current = map
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
+
+    const isActiveMap = () => mapRef.current === map
+    let isReady = false
+    const resetDefaultViewport = () => {
+      if (isActiveMap()) {
+        updateWorldViewport(map, selectedTripRef.current === null)
+      }
+    }
+    const markMapReady = () => {
+      if (!isActiveMap() || isReady) {
+        return
+      }
+
+      isReady = true
+      resetDefaultViewport()
+      setReadyMap(map)
+    }
+
+    map.once('style.load', markMapReady)
+    map.on('resize', resetDefaultViewport)
+    if (map.isStyleLoaded()) {
+      markMapReady()
     }
 
     return () => {
-      markerRefs.current.forEach((marker) => marker.remove())
-      markerRefs.current = []
-      mapRef.current?.remove()
-      mapRef.current = null
+      map.off('style.load', markMapReady)
+      map.off('resize', resetDefaultViewport)
+      if (mapRef.current === map) {
+        markerRefs.current.forEach((marker) => marker.remove())
+        markerRefs.current = []
+        mapRef.current = null
+      }
+      setReadyMap((currentMap) => (currentMap === map ? null : currentMap))
+      map.remove()
     }
   }, [])
 
   useEffect(() => {
-    const map = mapRef.current
-    if (!map || !isReady) {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map || !countryBoundaryData) {
       return
     }
 
-    const countryCodes = countryCodesFromOverview(overview)
-    const countryFilter: maplibregl.FilterSpecification = countryCodes.length > 0
-      ? ['in', 'ISO_A2_EH', ...countryCodes]
-      : ['==', 'ISO_A2_EH', '']
-    map.setFilter('visited-countries-fill', countryFilter)
-    map.setFilter('visited-countries-line', countryFilter)
+    const renderCountryOverlay = () => {
+      setCountryOverlayPaths(countryPathsForMap(map, countryBoundaryData, visitedCountryCodes))
+    }
 
-    markerRefs.current.forEach((marker) => marker.remove())
-    markerRefs.current = markersForMap(overview, selectedTrip?.id ?? null).map((marker) => {
-      const element = document.createElement('button')
-      element.className = `map-marker${marker.isSelectedTrip ? ' is-selected' : ''}`
-      element.type = 'button'
-      element.setAttribute('aria-label', `${marker.cityName}, ${marker.country.name}`)
-      const position = document.createElement('span')
-      position.textContent = String(marker.position)
-      element.append(position)
+    renderCountryOverlay()
+    map.on('move', renderCountryOverlay)
+    map.on('resize', renderCountryOverlay)
 
-      const popupContent = document.createElement('div')
-      const city = document.createElement('strong')
-      city.textContent = marker.cityName
-      const country = document.createElement('span')
-      country.textContent = marker.country.name
-      popupContent.append(city, country)
-
-      return new Marker({ element, anchor: 'bottom' })
-        .setLngLat([marker.longitude, marker.latitude])
-        .setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
-        .addTo(map)
-    })
-  }, [isReady, overview, selectedTrip?.id])
+    return () => {
+      map.off('move', renderCountryOverlay)
+      map.off('resize', renderCountryOverlay)
+    }
+  }, [readyMap, countryBoundaryData, visitedCountryCodesKey])
 
   useEffect(() => {
-    const map = mapRef.current
-    const focusMarkers = markersForTrip(selectedTrip)
-    if (!map || !isReady || focusMarkers.length === 0) {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
       return
     }
 
-    if (focusMarkers.length === 1) {
-      const [marker] = focusMarkers
-      map.flyTo({ center: [marker.longitude, marker.latitude], zoom: 6, essential: true })
+    markerRefs.current.forEach((marker) => marker.remove())
+    const markers = markersForMap(overview, selectedTrip?.id ?? null)
+      .map((marker) => createMarker(marker).addTo(map))
+    markerRefs.current = markers
+
+    return () => {
+      markers.forEach((marker) => marker.remove())
+      if (markerRefs.current === markers) {
+        markerRefs.current = []
+      }
+    }
+  }, [readyMap, overview, selectedTrip?.id])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
       return
     }
 
-    const bounds = focusMarkers.reduce(
-      (currentBounds, marker) => currentBounds.extend([marker.longitude, marker.latitude]),
+    if (cameraTarget.kind === 'none') {
+      updateWorldViewport(map, true)
+      return
+    }
+
+    if (cameraTarget.kind === 'point') {
+      map.flyTo({ center: cameraTarget.coordinate, zoom: cameraTarget.zoom, essential: true })
+      return
+    }
+
+    const bounds = cameraTarget.coordinates.reduce(
+      (currentBounds, coordinate) => currentBounds.extend(coordinate),
       new LngLatBounds(),
     )
     map.fitBounds(bounds, { padding: 90, maxZoom: 6, duration: 700 })
-  }, [isReady, selectedTrip])
+  }, [readyMap, cameraTargetKey])
 
   return (
     <section className="map-panel" aria-label="Interactive travel map">
@@ -130,13 +194,131 @@ export function MapView({ overview, selectedTrip }: MapViewProps) {
           <p className="eyebrow">A visual travel journal</p>
           <h1>See where your stories take you.</h1>
         </div>
-        <p>{countryCodesFromOverview(overview).length} countries visited</p>
+        <p>{visitedCountryCodes.length} countries visited</p>
       </div>
       <div className="map-canvas" ref={mapElementRef} />
-      {mapFailure ? <p className="map-error">{mapFailure}</p> : null}
+      <svg aria-hidden="true" className="country-overlay">
+        {countryOverlayPaths.map((path) => (
+          <path
+            d={path}
+            fill={COUNTRY_FILL}
+            fillOpacity={0.52}
+            fillRule="evenodd"
+            key={path}
+            stroke={COUNTRY_LINE}
+            strokeWidth={1.75}
+          />
+        ))}
+      </svg>
       {!selectedTrip && overview && overview.markers.length > 0 ? (
         <p className="map-hint">Select a trip to focus its itinerary on the map.</p>
       ) : null}
     </section>
   )
+}
+
+function activeReadyMap(readyMap: maplibregl.Map | null, currentMap: maplibregl.Map | null): maplibregl.Map | null {
+  return readyMap === currentMap ? readyMap : null
+}
+
+function countryPathsForMap(map: maplibregl.Map, countryBoundaryData: CountryBoundaryData, countryCodes: string[]): string[] {
+  const filter = countryFeatureFilter(countryCodes)
+  return countryBoundaryData.features
+    .filter((feature) => matchesCountryFilter(feature, filter))
+    .flatMap((feature) => geometryPaths(map, feature.geometry))
+}
+
+function matchesCountryFilter(
+  feature: CountryBoundaryFeature,
+  filter: ReturnType<typeof countryFeatureFilter>,
+): boolean {
+  if (filter[0] === '==') {
+    return false
+  }
+
+  return filter[2].includes(String(feature.properties?.ISO_A2_EH ?? ''))
+}
+
+function geometryPaths(map: maplibregl.Map, geometry: CountryGeometry): string[] {
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
+  return polygons.map((polygon) => polygonPath(map, polygon))
+}
+
+function polygonPath(map: maplibregl.Map, polygon: number[][][]): string {
+  return polygon.map((ring) => ringPath(map, ring)).join(' ')
+}
+
+function ringPath(map: maplibregl.Map, ring: number[][]): string {
+  return ring.map(([longitude, latitude], index) => {
+    const point = map.project([longitude, latitude])
+    return `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`
+  }).join(' ') + 'Z'
+}
+
+async function fetchCountryBoundaries(signal: AbortSignal): Promise<CountryBoundaryData> {
+  const response = await fetch(COUNTRY_BOUNDARIES_URL, { signal })
+  if (!response.ok) {
+    throw new Error(`Country boundary request failed with ${response.status}`)
+  }
+
+  const data: unknown = await response.json()
+  if (!isCountryBoundaryData(data)) {
+    throw new Error('Country boundary response was not a feature collection')
+  }
+  return data
+}
+
+function isCountryBoundaryData(data: unknown): data is CountryBoundaryData {
+  return typeof data === 'object'
+    && data !== null
+    && (data as { type?: unknown }).type === 'FeatureCollection'
+    && Array.isArray((data as { features?: unknown }).features)
+    && (data as { features: unknown[] }).features.every(isCountryBoundaryFeature)
+}
+
+function isCountryBoundaryFeature(feature: unknown): feature is CountryBoundaryFeature {
+  return typeof feature === 'object'
+    && feature !== null
+    && (feature as { type?: unknown }).type === 'Feature'
+    && isCountryGeometry((feature as { geometry?: unknown }).geometry)
+    && ((feature as { properties?: unknown }).properties === null
+      || typeof (feature as { properties?: unknown }).properties === 'object')
+}
+
+function isCountryGeometry(geometry: unknown): geometry is CountryGeometry {
+  return typeof geometry === 'object'
+    && geometry !== null
+    && ((geometry as { type?: unknown }).type === 'Polygon' || (geometry as { type?: unknown }).type === 'MultiPolygon')
+    && Array.isArray((geometry as { coordinates?: unknown }).coordinates)
+}
+
+function createMarker(marker: ReturnType<typeof markersForMap>[number]): Marker {
+  const element = document.createElement('button')
+  element.className = `map-marker${marker.isSelectedTrip ? ' is-selected' : ''}`
+  element.type = 'button'
+  element.setAttribute('aria-label', `${marker.cityName}, ${marker.country.name}`)
+  element.textContent = marker.markerLabel
+
+  const popupContent = document.createElement('div')
+  const city = document.createElement('strong')
+  city.textContent = marker.cityName
+  const country = document.createElement('span')
+  country.textContent = marker.country.name
+  popupContent.append(city, country)
+
+  return new Marker({ element, anchor: 'center' })
+    .setLngLat(marker.coordinate)
+    .setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
+}
+
+function updateWorldViewport(map: maplibregl.Map, moveCamera: boolean) {
+  const camera = map.cameraForBounds(WORLD_OVERVIEW_BOUNDS, { padding: WORLD_OVERVIEW_PADDING })
+  if (!camera) {
+    return
+  }
+
+  map.setMinZoom(camera.zoom)
+  if (moveCamera) {
+    map.jumpTo(camera)
+  }
 }

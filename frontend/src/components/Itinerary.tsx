@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Country, Trip } from '../types/travel'
+import { defaultCountryCodeForTrip } from './itineraryDefaults'
 
 interface ItineraryProps {
   trip: Trip
@@ -12,8 +13,15 @@ interface ItineraryProps {
 }
 
 export function Itinerary({ trip, countries, isMutating, onMove, onDelete, onAddStop }: ItineraryProps) {
-  const [countryCode, setCountryCode] = useState('')
+  const [countryCode, setCountryCode] = useState(() => defaultCountryCodeForTrip(trip, countries))
   const [cityName, setCityName] = useState('')
+  const hasUserSelectedCountry = useRef(false)
+
+  useEffect(() => {
+    if (!hasUserSelectedCountry.current && countryCode === '') {
+      setCountryCode(defaultCountryCodeForTrip(trip, countries))
+    }
+  }, [countries, countryCode, trip])
 
   async function handleAddStop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -75,7 +83,14 @@ export function Itinerary({ trip, countries, isMutating, onMove, onDelete, onAdd
         <h3>Add a stop</h3>
         <label>
           Country
-          <select required value={countryCode} onChange={(event) => setCountryCode(event.target.value)}>
+          <select
+            required
+            value={countryCode}
+            onChange={(event) => {
+              hasUserSelectedCountry.current = true
+              setCountryCode(event.target.value)
+            }}
+          >
             <option value="">Choose a country</option>
             {countries.map((country) => (
               <option key={country.code} value={country.code}>
