@@ -3,6 +3,7 @@ target/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+data/
 .idea/
 *.iml
 .DS_Store

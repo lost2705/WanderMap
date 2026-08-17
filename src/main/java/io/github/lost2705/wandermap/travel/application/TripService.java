@@ -29,21 +29,29 @@ public class TripService {
     private final CountryRepository countryRepository;
     private final CityRepository cityRepository;
     private final CityLocationResolver cityLocationResolver;
+    private final PhotoFileLifecycle photoFileLifecycle;
 
     public TripService(
             TripRepository tripRepository,
             CountryRepository countryRepository,
             CityRepository cityRepository,
-            CityLocationResolver cityLocationResolver) {
+            CityLocationResolver cityLocationResolver,
+            PhotoFileLifecycle photoFileLifecycle) {
         this.tripRepository = tripRepository;
         this.countryRepository = countryRepository;
         this.cityRepository = cityRepository;
         this.cityLocationResolver = cityLocationResolver;
+        this.photoFileLifecycle = photoFileLifecycle;
     }
 
     @Transactional
     public Trip createTrip(String name, LocalDate startDate, LocalDate endDate) {
-        return tripRepository.save(new Trip(name, startDate, endDate));
+        return createTrip(name, startDate, endDate, null);
+    }
+
+    @Transactional
+    public Trip createTrip(String name, LocalDate startDate, LocalDate endDate, String description) {
+        return tripRepository.save(new Trip(name, startDate, endDate, description));
     }
 
     @Transactional(readOnly = true)
@@ -63,14 +71,26 @@ public class TripService {
 
     @Transactional
     public Trip updateTrip(UUID tripId, String name, LocalDate startDate, LocalDate endDate) {
+        return updateTrip(tripId, name, startDate, endDate, null);
+    }
+
+    @Transactional
+    public Trip updateTrip(UUID tripId, String name, LocalDate startDate, LocalDate endDate, String description) {
         Trip trip = loadTripWithStops(tripId);
-        trip.updateDetails(name, startDate, endDate);
+        trip.updateDetails(name, startDate, endDate, description);
         return tripRepository.save(trip);
     }
 
     @Transactional
     public void deleteTrip(UUID tripId) {
-        tripRepository.delete(loadTripWithStops(tripId));
+        Trip trip = loadTripWithStops(tripId);
+        List<String> storageKeys = trip.getStops().stream()
+                .flatMap(stop -> stop.getPhotos().stream())
+                .map(io.github.lost2705.wandermap.travel.domain.TripStopPhoto::getStorageKey)
+                .toList();
+        tripRepository.delete(trip);
+        tripRepository.flush();
+        photoFileLifecycle.deleteAfterCommit(storageKeys);
     }
 
     @Transactional
@@ -85,8 +105,34 @@ public class TripService {
             String cityName,
             BigDecimal latitude,
             BigDecimal longitude) {
+        return addStop(tripId, countryCode, cityName, latitude, longitude, null, null, null);
+    }
+
+    @Transactional
+    public TripStop addStop(
+            UUID tripId,
+            String countryCode,
+            String cityName,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            LocalDate arrivalDate,
+            LocalDate departureDate,
+            String note) {
         Trip trip = loadTripWithStops(tripId);
-        TripStop stop = trip.addStop(resolveCity(countryCode, cityName, locationFrom(latitude, longitude)));
+        TripStop stop = trip.addStop(
+                resolveCity(countryCode, cityName, locationFrom(latitude, longitude)),
+                arrivalDate,
+                departureDate,
+                note);
+        tripRepository.save(trip);
+        return stop;
+    }
+
+    @Transactional
+    public TripStop updateStopJournal(
+            UUID tripId, UUID stopId, LocalDate arrivalDate, LocalDate departureDate, String note) {
+        Trip trip = loadTripWithStops(tripId);
+        TripStop stop = trip.updateStopJournal(stopId, arrivalDate, departureDate, note);
         tripRepository.save(trip);
         return stop;
     }
@@ -101,13 +147,21 @@ public class TripService {
     @Transactional
     public Trip removeStop(UUID tripId, UUID stopId) {
         Trip trip = loadTripWithStops(tripId);
+        List<String> storageKeys = trip.getStop(stopId).getPhotos().stream()
+                .map(io.github.lost2705.wandermap.travel.domain.TripStopPhoto::getStorageKey)
+                .toList();
         trip.removeStop(stopId);
-        return tripRepository.save(trip);
+        Trip savedTrip = tripRepository.saveAndFlush(trip);
+        photoFileLifecycle.deleteAfterCommit(storageKeys);
+        return savedTrip;
     }
 
     private Trip loadTripWithStops(UUID tripId) {
         Objects.requireNonNull(tripId, "trip id must not be null");
-        return tripRepository.findByIdWithStops(tripId).orElseThrow(() -> new TripNotFoundException(tripId));
+        Trip trip = tripRepository.findByIdWithStops(tripId)
+                .orElseThrow(() -> new TripNotFoundException(tripId));
+        trip.getStops().forEach(stop -> stop.getPhotos().size());
+        return trip;
     }
 
     private City resolveCity(String countryCode, String cityName, CityLocation selectedLocation) {

@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { parseApiError } from './client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { parseApiError, request } from './client'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('parseApiError', () => {
   it('uses the API problem detail and code when available', () => {
@@ -16,5 +20,18 @@ describe('parseApiError', () => {
 
   it('falls back to a useful status message for an invalid response', () => {
     expect(parseApiError(503, '<html>unavailable</html>').message).toBe('Request failed (503).')
+  })
+
+  it('leaves the multipart content type boundary to the browser', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const body = new FormData()
+    body.append('file', new Blob(['photo'], { type: 'image/jpeg' }), 'photo.jpg')
+
+    await request('/api/photos', { method: 'POST', body })
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>
+    expect(headers.Accept).toBe('application/json')
+    expect(headers['Content-Type']).toBeUndefined()
   })
 })

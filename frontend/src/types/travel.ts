@@ -14,7 +14,21 @@ export interface City {
 export interface TripStop {
   id: string
   position: number
+  arrivalDate: string | null
+  departureDate: string | null
+  note: string | null
   city: City
+  /** Absent only when hydrating a legacy cached response; current APIs always return an array. */
+  photos?: TripStopPhoto[]
+}
+
+export interface TripStopPhoto {
+  id: string
+  originalFilename: string
+  contentType: string
+  size: number
+  position: number
+  contentUrl: string
 }
 
 export interface Trip {
@@ -22,6 +36,7 @@ export interface Trip {
   name: string
   startDate: string | null
   endDate: string | null
+  description: string | null
   stops: TripStop[]
 }
 
@@ -30,6 +45,7 @@ export interface TripSummary {
   name: string
   startDate: string | null
   endDate: string | null
+  description: string | null
   stopCount: number
 }
 
@@ -61,6 +77,7 @@ export interface TripDetailsInput {
   name: string
   startDate: string | null
   endDate: string | null
+  description: string | null
 }
 
 export interface AddStopInput {
@@ -68,4 +85,13 @@ export interface AddStopInput {
   cityName: string
   latitude: number
   longitude: number
+  arrivalDate?: string | null
+  departureDate?: string | null
+  note?: string | null
+}
+
+export interface StopJournalInput {
+  arrivalDate: string | null
+  departureDate: string | null
+  note: string | null
 }

@@ -1,14 +1,15 @@
 # WanderMap
 
-WanderMap is a visual travel journal for collecting trips and seeing their itineraries on an interactive world map. The current milestone adds real city search to the React + MapLibre application: a selected geocoding result supplies the country and coordinates needed to persist a stop and display its marker.
+WanderMap is a visual travel journal for collecting trips and seeing their itineraries on an interactive world map. Trip stops can include journal dates, notes, and locally stored photo memories while map rendering remains driven by stable city and itinerary data.
 
 > Screenshot placeholder: start the backend and frontend locally to see the interactive map.
 
 ## What it does today
 
-- create, edit, and delete trips with optional dates;
+- create, edit, and delete trips with optional dates and descriptions;
 - search real cities and add one explicit result as an itinerary stop;
 - reorder and remove itinerary stops;
+- add stop dates, notes, and ordered JPEG, PNG, or WebP photo attachments;
 - preserve all travel data in PostgreSQL across browser refreshes;
 - highlight persisted ISO country codes on a world map;
 - show and focus city markers when stored coordinates are available.
@@ -50,6 +51,8 @@ Open the Vite URL printed in the terminal (normally `http://localhost:5173`). It
 
 To point the backend at another database, set `WANDERMAP_DB_URL`, `WANDERMAP_DB_USERNAME`, and `WANDERMAP_DB_PASSWORD`.
 
+Photo binaries use a provider-neutral `PhotoStorage` boundary. Local development stores generated keys beneath `WANDERMAP_PHOTOS_ROOT` (default `./data/photos`); PostgreSQL stores metadata only. `WANDERMAP_PHOTOS_MAX_SIZE` configures both the application and multipart limit and defaults to `10MB`. Original filenames are display metadata and are never used as storage paths.
+
 City search uses the configurable `WANDERMAP_GEOCODING_BASE_URL` (default `https://photon.komoot.io`), identifies itself with `WANDERMAP_GEOCODING_USER_AGENT`, and uses connection/read timeouts configurable with `WANDERMAP_GEOCODING_CONNECT_TIMEOUT_MILLIS` and `WANDERMAP_GEOCODING_READ_TIMEOUT_MILLIS`.
 
 ## Map and coordinates
@@ -81,9 +84,20 @@ curl http://localhost:8080/api/trips/{tripId}
 curl http://localhost:8080/api/trips/map-overview
 curl http://localhost:8080/api/countries
 curl http://localhost:8080/api/health
+
+curl -X POST http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos \
+  -F "file=@memory.jpg"
+
+curl http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos/{photoId}/content
+
+curl -X DELETE http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos/{photoId}
 ```
 
 `GET /api/cities/search` returns only normalized application fields: `name`, `countryName`, optional `regionName`, `countryCode`, `latitude`, and `longitude`. The region label distinguishes same-name cities within one country but is not required for persistence. The stop endpoint keeps latitude/longitude optional for backward compatibility but requires both when either is supplied. `GET /api/trips/map-overview` remains the compact read model for visited country codes and located stop markers.
+
+Photo uploads reject empty files, files over the configured limit, unsupported MIME types, and data whose signature does not match its declared type. JPEG and PNG files are decoded with the JDK image codecs with a 25-megapixel cap; WebP receives structural RIFF/WEBP validation because the application intentionally does not add a WebP codec in V1. Production hardening can add malware scanning and derivative thumbnails behind the same storage boundary.
+
+File/database consistency favors never leaving a live database record pointing to a missing file. A newly stored file is deleted if its metadata transaction rolls back. Photo, stop, and trip deletion commit metadata first and remove the corresponding files immediately after commit. Local deletion is idempotent; a rare post-commit provider failure is logged and may leave an unreferenced file for a future reconciliation job.
 
 ## Tests and builds
 
@@ -106,9 +120,9 @@ The GitHub Actions workflow runs these backend and frontend checks independently
 ```text
 src/main/java/.../travel/
   api/             HTTP controllers and response DTOs
-  application/     travel use cases and provider-neutral geocoding boundaries
-  domain/          Trip aggregate, City, Country, and coordinates
-  infrastructure/  Photon client and deterministic legacy city-location adapter
+  application/     travel use cases and provider-neutral geocoding/storage boundaries
+  domain/          Trip aggregate, stops, photo metadata, City, Country, and coordinates
+  infrastructure/  Photon/geocoding adapters and local photo storage
   persistence/     JPA repositories
 frontend/
   src/api/         typed HTTP client

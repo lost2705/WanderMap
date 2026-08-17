@@ -5,5 +5,5 @@ import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
 public record CreateTripRequest(
-        @NotBlank @Size(max = 200) String name, LocalDate startDate, LocalDate endDate) {
+        @NotBlank @Size(max = 200) String name, LocalDate startDate, LocalDate endDate, String description) {
 }

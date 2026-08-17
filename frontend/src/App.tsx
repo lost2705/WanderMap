@@ -4,18 +4,30 @@ import {
   addStop,
   createTrip,
   deleteStop,
+  deleteStopPhoto,
   deleteTrip,
   getMapOverview,
   getTrip,
   listTrips,
   moveStop,
+  updateStopJournal,
   updateTrip,
+  uploadStopPhoto,
 } from './api/trips'
 import { Itinerary } from './components/Itinerary'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
 import { MapView } from './features/map/MapView'
-import type { CitySearchResult, Trip, TripDetailsInput, TripMapOverview, TripSummary } from './types/travel'
+import type {
+  CitySearchResult,
+  StopJournalInput,
+  Trip,
+  TripDetailsInput,
+  TripMapOverview,
+  TripStop,
+  TripStopPhoto,
+  TripSummary,
+} from './types/travel'
 
 type TripFormMode = 'create' | 'edit' | null
 
@@ -82,7 +94,7 @@ export default function App() {
     setSelectedTrip(trip)
   }
 
-  async function performMutation(action: () => Promise<void | Trip>) {
+  async function performMutation<T>(action: () => Promise<T>): Promise<T> {
     setIsMutating(true)
     setError(null)
     try {
@@ -115,7 +127,15 @@ export default function App() {
     }
     setFormMode(null)
     setSelectedTrip(updatedTrip)
-    await loadApplication(updatedTrip.id)
+    setTrips((currentTrips) => currentTrips.map((trip) => trip.id === updatedTrip.id
+      ? {
+          ...trip,
+          name: updatedTrip.name,
+          startDate: updatedTrip.startDate,
+          endDate: updatedTrip.endDate,
+          description: updatedTrip.description,
+        }
+      : trip))
   }
 
   async function handleDeleteTrip() {
@@ -155,6 +175,53 @@ export default function App() {
     }
     await performMutation(() => deleteStop(selectedTrip.id, stopId))
     await refreshSelectedTrip(selectedTrip.id)
+  }
+
+  async function handleUpdateStopJournal(stopId: string, input: StopJournalInput) {
+    if (!selectedTrip) {
+      return
+    }
+    const updatedStop = await performMutation(() => updateStopJournal(selectedTrip.id, stopId, input))
+    setSelectedTrip((currentTrip) => currentTrip?.id === selectedTrip.id
+      ? {
+          ...currentTrip,
+          stops: replaceStop(currentTrip.stops, updatedStop),
+        }
+      : currentTrip)
+  }
+
+  async function handleUploadPhoto(stopId: string, file: File) {
+    if (!selectedTrip) {
+      return
+    }
+    const tripId = selectedTrip.id
+    const createdPhoto = await performMutation(() => uploadStopPhoto(tripId, stopId, file))
+    setSelectedTrip((currentTrip) => currentTrip?.id === tripId
+      ? {
+          ...currentTrip,
+          stops: updateStopPhotos(currentTrip.stops, stopId, (photos) => [...photos, createdPhoto]),
+        }
+      : currentTrip)
+  }
+
+  async function handleDeletePhoto(stopId: string, photoId: string) {
+    if (!selectedTrip) {
+      return
+    }
+    const tripId = selectedTrip.id
+    await performMutation(() => deleteStopPhoto(tripId, stopId, photoId))
+    setSelectedTrip((currentTrip) => currentTrip?.id === tripId
+      ? {
+          ...currentTrip,
+          stops: updateStopPhotos(
+            currentTrip.stops,
+            stopId,
+            (photos) => photos
+              .filter((photo) => photo.id !== photoId)
+              .map((photo, index) => ({ ...photo, position: index + 1 })),
+          ),
+        }
+      : currentTrip)
   }
 
   function handleSelectTrip(tripId: string) {
@@ -213,6 +280,9 @@ export default function App() {
               onAddStop={handleAddStop}
               onDelete={handleDeleteStop}
               onMove={handleMoveStop}
+              onUpdateJournal={handleUpdateStopJournal}
+              onUploadPhoto={handleUploadPhoto}
+              onDeletePhoto={handleDeletePhoto}
             />
             <div className="trip-management-actions">
               <button className="button button-quiet" disabled={isMutating} type="button" onClick={() => setFormMode('edit')}>
@@ -239,7 +309,7 @@ export default function App() {
             </button>
           </div>
         ) : null}
-        <MapView overview={overview} selectedTrip={activeSelectedTrip} />
+        <MapView overview={overview} selectedTrip={activeSelectedTrip} trips={trips} />
       </div>
     </main>
   )
@@ -250,4 +320,18 @@ function toErrorMessage(reason: unknown): string {
     return reason.code ? `${reason.message} (${reason.code})` : reason.message
   }
   return reason instanceof Error ? reason.message : 'Something went wrong. Please try again.'
+}
+
+function replaceStop(stops: TripStop[], updatedStop: TripStop): TripStop[] {
+  return stops.map((stop) => stop.id === updatedStop.id ? updatedStop : stop)
+}
+
+function updateStopPhotos(
+  stops: TripStop[],
+  stopId: string,
+  update: (photos: TripStopPhoto[]) => TripStopPhoto[],
+): TripStop[] {
+  return stops.map((stop) => stop.id === stopId
+    ? { ...stop, photos: update(stop.photos ?? []).sort((left, right) => left.position - right.position) }
+    : stop)
 }

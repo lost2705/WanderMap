@@ -1,5 +1,14 @@
 import { request } from './client'
-import type { AddStopInput, Trip, TripDetailsInput, TripMapOverview, TripSummary } from '../types/travel'
+import type {
+  AddStopInput,
+  StopJournalInput,
+  Trip,
+  TripDetailsInput,
+  TripMapOverview,
+  TripStop,
+  TripStopPhoto,
+  TripSummary,
+} from '../types/travel'
 
 export function listTrips(): Promise<TripSummary[]> {
   return request<TripSummary[]>('/api/trips')
@@ -36,6 +45,26 @@ export function moveStop(tripId: string, stopId: string, position: number): Prom
   })
 }
 
+export function updateStopJournal(tripId: string, stopId: string, input: StopJournalInput): Promise<TripStop> {
+  return request<TripStop>(`/api/trips/${tripId}/stops/${stopId}/journal`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 export function deleteStop(tripId: string, stopId: string): Promise<void> {
   return request<void>(`/api/trips/${tripId}/stops/${stopId}`, { method: 'DELETE' })
+}
+
+export function uploadStopPhoto(tripId: string, stopId: string, file: File): Promise<TripStopPhoto> {
+  const body = new FormData()
+  body.append('file', file)
+  return request<TripStopPhoto>(`/api/trips/${tripId}/stops/${stopId}/photos`, {
+    method: 'POST',
+    body,
+  })
+}
+
+export function deleteStopPhoto(tripId: string, stopId: string, photoId: string): Promise<void> {
+  return request<void>(`/api/trips/${tripId}/stops/${stopId}/photos/${photoId}`, { method: 'DELETE' })
 }

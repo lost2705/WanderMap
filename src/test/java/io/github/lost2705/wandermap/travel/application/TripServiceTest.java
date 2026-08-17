@@ -51,22 +51,35 @@ class TripServiceTest {
     @Mock
     private CityLocationResolver cityLocationResolver;
 
+    @Mock
+    private PhotoFileLifecycle photoFileLifecycle;
+
     private TripService tripService;
 
     @BeforeEach
     void setUp() {
-        tripService = new TripService(tripRepository, countryRepository, cityRepository, cityLocationResolver);
+        tripService = new TripService(
+                tripRepository,
+                countryRepository,
+                cityRepository,
+                cityLocationResolver,
+                photoFileLifecycle);
     }
 
     @Test
     void createsTrip() {
         when(tripRepository.save(any(Trip.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        Trip createdTrip = tripService.createTrip("Italy 2026", LocalDate.of(2026, 5, 10), LocalDate.of(2026, 5, 21));
+        Trip createdTrip = tripService.createTrip(
+                "Italy 2026",
+                LocalDate.of(2026, 5, 10),
+                LocalDate.of(2026, 5, 21),
+                "Food and art");
 
         assertThat(createdTrip.getName()).isEqualTo("Italy 2026");
         assertThat(createdTrip.getStartDate()).isEqualTo(LocalDate.of(2026, 5, 10));
         assertThat(createdTrip.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 21));
+        assertThat(createdTrip.getDescription()).isEqualTo("Food and art");
         verify(tripRepository).save(createdTrip);
     }
 
@@ -104,11 +117,16 @@ class TripServiceTest {
         when(tripRepository.save(trip)).thenReturn(trip);
 
         Trip updatedTrip = tripService.updateTrip(
-                trip.getId(), "Italy in May", LocalDate.of(2026, 5, 10), LocalDate.of(2026, 5, 21));
+                trip.getId(),
+                "Italy in May",
+                LocalDate.of(2026, 5, 10),
+                LocalDate.of(2026, 5, 21),
+                "A spring escape");
 
         assertThat(updatedTrip.getName()).isEqualTo("Italy in May");
         assertThat(updatedTrip.getStartDate()).isEqualTo(LocalDate.of(2026, 5, 10));
         assertThat(updatedTrip.getEndDate()).isEqualTo(LocalDate.of(2026, 5, 21));
+        assertThat(updatedTrip.getDescription()).isEqualTo("A spring escape");
         verify(tripRepository).save(trip);
     }
 
@@ -374,12 +392,12 @@ class TripServiceTest {
         Trip trip = tripWithStops("Rome", "Florence", "Bologna");
         UUID florenceStopId = trip.getStops().get(1).getId();
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
-        when(tripRepository.save(trip)).thenReturn(trip);
+        when(tripRepository.saveAndFlush(trip)).thenReturn(trip);
 
         tripService.removeStop(trip.getId(), florenceStopId);
 
         assertThat(trip.getStops()).extracting(stop -> stop.getCity().getName()).containsExactly("Rome", "Bologna");
-        verify(tripRepository).save(trip);
+        verify(tripRepository).saveAndFlush(trip);
     }
 
     @Test
@@ -398,6 +416,60 @@ class TripServiceTest {
             trip.addStop(new City(ITALY, cityName));
         }
         return trip;
+    }
+
+    @Test
+    void addsAndUpdatesStopJournalThroughAggregate() {
+        Trip trip = new Trip(
+                "Japan", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
+        City tokyo = new City(ITALY, "Tokyo");
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
+        when(cityRepository.findByIdentity("IT", "tokyo", null, null)).thenReturn(Optional.of(tokyo));
+        when(tripRepository.save(trip)).thenReturn(trip);
+
+        TripStop stop = tripService.addStop(
+                trip.getId(),
+                "IT",
+                "Tokyo",
+                null,
+                null,
+                LocalDate.of(2026, 4, 2),
+                LocalDate.of(2026, 4, 5),
+                "First note");
+        TripStop updatedStop = tripService.updateStopJournal(
+                trip.getId(),
+                stop.getId(),
+                LocalDate.of(2026, 4, 3),
+                LocalDate.of(2026, 4, 6),
+                "Updated note");
+
+        assertThat(updatedStop).isSameAs(stop);
+        assertThat(updatedStop.getArrivalDate()).isEqualTo(LocalDate.of(2026, 4, 3));
+        assertThat(updatedStop.getDepartureDate()).isEqualTo(LocalDate.of(2026, 4, 6));
+        assertThat(updatedStop.getNote()).isEqualTo("Updated note");
+        assertThat(updatedStop.getCity()).isSameAs(tokyo);
+        assertThat(updatedStop.getPosition()).isEqualTo(1);
+        verify(tripRepository, org.mockito.Mockito.times(2)).save(trip);
+    }
+
+    @Test
+    void rejectsInvalidStopJournalWithoutSaving() {
+        Trip trip = tripWithStops("Tokyo");
+        UUID stopId = trip.getStops().getFirst().getId();
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> tripService.updateStopJournal(
+                        trip.getId(),
+                        stopId,
+                        LocalDate.of(2026, 4, 6),
+                        LocalDate.of(2026, 4, 2),
+                        "Invalid"))
+                .withMessage("stop arrival date must not be after departure date");
+
+        assertThat(trip.getStops().getFirst().getArrivalDate()).isNull();
+        assertThat(trip.getStops().getFirst().getNote()).isNull();
+        verify(tripRepository, never()).save(trip);
     }
 
     private static String cityIdentityKey(

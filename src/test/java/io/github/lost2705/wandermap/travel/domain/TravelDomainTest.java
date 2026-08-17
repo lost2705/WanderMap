@@ -64,6 +64,95 @@ class TravelDomainTest {
     }
 
     @Test
+    void storesTripDescriptionAndStopJournalDetails() {
+        Trip trip = new Trip(
+                "Japan 2026",
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 12),
+                "Spring in Japan");
+
+        TripStop stop = trip.addStop(
+                city("Tokyo"),
+                LocalDate.of(2026, 4, 2),
+                LocalDate.of(2026, 4, 5),
+                "  Cherry blossoms in Ueno Park.  ");
+
+        assertThat(trip.getDescription()).isEqualTo("Spring in Japan");
+        assertThat(stop.getArrivalDate()).isEqualTo(LocalDate.of(2026, 4, 2));
+        assertThat(stop.getDepartureDate()).isEqualTo(LocalDate.of(2026, 4, 5));
+        assertThat(stop.getNote()).isEqualTo("Cherry blossoms in Ueno Park.");
+    }
+
+    @Test
+    void keepsAllJournalFieldsOptionalAndNormalizesBlankTextToNull() {
+        Trip trip = new Trip("Japan 2026", null, null, "   ");
+
+        TripStop stop = trip.addStop(city("Tokyo"), null, null, "\n  ");
+
+        assertThat(trip.getDescription()).isNull();
+        assertThat(stop.getArrivalDate()).isNull();
+        assertThat(stop.getDepartureDate()).isNull();
+        assertThat(stop.getNote()).isNull();
+    }
+
+    @Test
+    void rejectsStopArrivalAfterDeparture() {
+        Trip trip = new Trip("Japan 2026", null, null);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> trip.addStop(
+                        city("Tokyo"), LocalDate.of(2026, 4, 5), LocalDate.of(2026, 4, 2), null))
+                .withMessage("stop arrival date must not be after departure date");
+        assertThat(trip.getStops()).isEmpty();
+    }
+
+    @Test
+    void rejectsStopDatesOutsideKnownTripBoundaries() {
+        Trip trip = new Trip(
+                "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> trip.addStop(
+                        city("Tokyo"), LocalDate.of(2026, 3, 31), null, null))
+                .withMessage("stop arrival date must not be before trip start date");
+        assertThatIllegalArgumentException().isThrownBy(() -> trip.addStop(
+                        city("Kyoto"), null, LocalDate.of(2026, 4, 13), null))
+                .withMessage("stop departure date must not be after trip end date");
+        assertThat(trip.getStops()).isEmpty();
+    }
+
+    @Test
+    void updatesStopJournalWithoutChangingItsCityOrPosition() {
+        Trip trip = new Trip(
+                "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
+        TripStop stop = trip.addStop(city("Tokyo"));
+
+        TripStop updatedStop = trip.updateStopJournal(
+                stop.getId(), LocalDate.of(2026, 4, 2), LocalDate.of(2026, 4, 5), "Tokyo note");
+
+        assertThat(updatedStop).isSameAs(stop);
+        assertThat(updatedStop.getPosition()).isEqualTo(1);
+        assertThat(updatedStop.getCity().getName()).isEqualTo("Tokyo");
+        assertThat(updatedStop.getArrivalDate()).isEqualTo(LocalDate.of(2026, 4, 2));
+        assertThat(updatedStop.getDepartureDate()).isEqualTo(LocalDate.of(2026, 4, 5));
+        assertThat(updatedStop.getNote()).isEqualTo("Tokyo note");
+    }
+
+    @Test
+    void rejectsTripDateChangesThatWouldExcludeAnExistingStopWithoutMutatingTheTrip() {
+        Trip trip = new Trip(
+                "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12), "Original");
+        trip.addStop(
+                city("Tokyo"), LocalDate.of(2026, 4, 2), LocalDate.of(2026, 4, 5), null);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> trip.updateDetails(
+                        "Changed", LocalDate.of(2026, 4, 3), LocalDate.of(2026, 4, 12), "Changed"))
+                .withMessage("stop arrival date must not be before trip start date");
+
+        assertThat(trip.getName()).isEqualTo("Japan 2026");
+        assertThat(trip.getStartDate()).isEqualTo(LocalDate.of(2026, 4, 1));
+        assertThat(trip.getDescription()).isEqualTo("Original");
+    }
+
+    @Test
     void addingFirstStopAssignsPositionOne() {
         Trip trip = trip();
 
@@ -99,6 +188,22 @@ class TravelDomainTest {
         trip.addStop(rome);
 
         assertStops(trip, "Rome", "Rome");
+    }
+
+    @Test
+    void appendsStopPhotosDeterministicallyAndCompactsPositionsAfterRemoval() {
+        TripStop stop = tripWithStops("Rome").getStops().getFirst();
+        TripStopPhoto first = stop.addPhoto("ab/first", "first.jpg", "image/jpeg", 100);
+        TripStopPhoto second = stop.addPhoto("cd/second", "second.png", "image/png", 200);
+        TripStopPhoto third = stop.addPhoto("ef/third", "third.webp", "image/webp", 300);
+
+        assertThat(stop.getPhotos()).containsExactly(first, second, third);
+        assertThat(stop.getPhotos()).extracting(TripStopPhoto::getPosition).containsExactly(1, 2, 3);
+
+        stop.removePhoto(second.getId());
+
+        assertThat(stop.getPhotos()).containsExactly(first, third);
+        assertThat(stop.getPhotos()).extracting(TripStopPhoto::getPosition).containsExactly(1, 2);
     }
 
     @Test

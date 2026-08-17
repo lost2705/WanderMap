@@ -3,7 +3,10 @@ package io.github.lost2705.wandermap.travel.api;
 import io.github.lost2705.wandermap.travel.application.CountryNotFoundException;
 import io.github.lost2705.wandermap.travel.application.GeocodingUnavailableException;
 import io.github.lost2705.wandermap.travel.application.TripNotFoundException;
+import io.github.lost2705.wandermap.travel.application.PhotoStorageException;
+import io.github.lost2705.wandermap.travel.application.PhotoValidationException;
 import io.github.lost2705.wandermap.travel.domain.TripStopNotFoundException;
+import io.github.lost2705.wandermap.travel.domain.TripStopPhotoNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class TravelExceptionHandler {
@@ -31,6 +35,51 @@ public class TravelExceptionHandler {
     @ExceptionHandler(TripStopNotFoundException.class)
     ProblemDetail handleTripStopNotFound(TripStopNotFoundException exception) {
         return problem(HttpStatus.NOT_FOUND, "Trip stop not found", exception.getMessage(), "TRIP_STOP_NOT_FOUND");
+    }
+
+    @ExceptionHandler(TripStopPhotoNotFoundException.class)
+    ProblemDetail handleTripStopPhotoNotFound(TripStopPhotoNotFoundException exception) {
+        return problem(HttpStatus.NOT_FOUND, "Photo not found", exception.getMessage(), "PHOTO_NOT_FOUND");
+    }
+
+    @ExceptionHandler(PhotoValidationException.class)
+    ProblemDetail handlePhotoValidation(PhotoValidationException exception) {
+        return switch (exception.getReason()) {
+            case EMPTY -> problem(HttpStatus.BAD_REQUEST, "Empty photo", exception.getMessage(), "PHOTO_EMPTY");
+            case UNSUPPORTED_TYPE -> problem(
+                    HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                    "Unsupported photo type",
+                    exception.getMessage(),
+                    "PHOTO_UNSUPPORTED_TYPE");
+            case TOO_LARGE -> problem(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "Photo too large",
+                    exception.getMessage(),
+                    "PHOTO_TOO_LARGE");
+            case INVALID_CONTENT -> problem(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid photo content",
+                    exception.getMessage(),
+                    "PHOTO_INVALID_CONTENT");
+        };
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ProblemDetail handleMaximumUploadSize(MaxUploadSizeExceededException exception) {
+        return problem(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "Photo too large",
+                "photo file exceeds the configured upload limit",
+                "PHOTO_TOO_LARGE");
+    }
+
+    @ExceptionHandler(PhotoStorageException.class)
+    ProblemDetail handlePhotoStorageFailure(PhotoStorageException exception) {
+        return problem(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Photo storage unavailable",
+                exception.getMessage(),
+                "PHOTO_STORAGE_FAILURE");
     }
 
     @ExceptionHandler(GeocodingUnavailableException.class)
