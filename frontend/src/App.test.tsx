@@ -32,7 +32,7 @@ vi.mock('./features/map/MapView', async () => {
       return (
         <div
           data-countries={countryCodes.join(',')}
-          data-markers={markers.map((marker) => marker.tripId).join(',')}
+          data-markers={markers.flatMap((marker) => marker.visits.map((visit) => visit.tripId)).join(',')}
           data-selected-trip={selectedTrip?.id ?? 'global'}
           data-testid="map-state"
         />
@@ -126,6 +126,7 @@ const overview: TripMapOverview = {
     {
       tripId: 'italy',
       stopId: 'rome',
+      cityId: 'city-rome',
       position: 1,
       cityName: 'Rome',
       latitude: 41.9028,
@@ -135,6 +136,7 @@ const overview: TripMapOverview = {
     {
       tripId: 'japan',
       stopId: 'tokyo',
+      cityId: 'city-tokyo',
       position: 1,
       cityName: 'Tokyo',
       latitude: 35.6762,
@@ -171,7 +173,7 @@ describe('App trip selection', () => {
     expect(screen.queryByRole('button', { name: 'Edit trip' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Add a stop' })).toBeNull()
     expect(screen.getByText('Select a trip to view its itinerary.')).toBeTruthy()
-    expectMapState('global', 'IT,JP', 'italy,japan')
+    expectMapState('global', '', 'italy,japan')
 
     fireEvent.click(italyButton)
 

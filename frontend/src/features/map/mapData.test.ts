@@ -7,9 +7,12 @@ import {
   markerOffsetsForScreenCollisions,
   markerScreenKey,
   markersForMap,
+  markersForSelectedTrip,
   markersForTrip,
+  placesForGlobalMap,
   routeFeatureCollection,
   routesForMap,
+  routesForSelectedTrip,
   selectedTripCameraTarget,
   tripVisualIdentity,
   toMapCoordinate,
@@ -22,6 +25,7 @@ const overview: TripMapOverview = {
     {
       tripId: 'italy',
       stopId: 'rome',
+      cityId: 'city-rome',
       position: 1,
       cityName: 'Rome',
       latitude: 41.9028,
@@ -31,6 +35,7 @@ const overview: TripMapOverview = {
     {
       tripId: 'japan',
       stopId: 'tokyo',
+      cityId: 'city-tokyo',
       position: 1,
       cityName: 'Tokyo',
       latitude: 35.6762,
@@ -41,9 +46,9 @@ const overview: TripMapOverview = {
 }
 
 describe('map data', () => {
-  it('uses all global visited countries when no trip is selected', () => {
+  it('disables country highlighting when no trip is selected', () => {
     expect(countryCodesForMap(null, null)).toEqual([])
-    expect(countryCodesForMap(overview, null)).toEqual(['FR', 'IT'])
+    expect(countryCodesForMap(overview, null)).toEqual([])
   })
 
   it('uses only the selected single-country trip countries', () => {
@@ -59,16 +64,27 @@ describe('map data', () => {
     const markers = markersForMap(overview, 'italy')
     expect(markers).toHaveLength(1)
     const marker = markers[0]
-    expect(marker?.isSelectedTrip).toBe(true)
+    expect(marker?.mode).toBe('selected-itinerary')
     expect(marker?.markerLabel).toBe('1')
     expect(marker?.coordinate).toEqual([12.4964, 41.9028])
     expect(markersForMap(overview, 'another-trip')).toEqual([])
   })
 
-  it('shows all markers when no trip is selected', () => {
+  it('shows all visited places without itinerary position labels when no trip is selected', () => {
     const markers = markersForMap(overview, null)
-    expect(markers.map((marker) => marker.tripId)).toEqual(['italy', 'japan'])
-    expect(markers.every((marker) => !marker.isSelectedTrip)).toBe(true)
+    expect(markers.map((marker) => marker.cityName)).toEqual(['Rome', 'Tokyo'])
+    expect(markers.every((marker) => marker.mode === 'global-place')).toBe(true)
+    expect(markers.every((marker) => marker.markerLabel === null)).toBe(true)
+  })
+
+  it('restores the same global places after selecting and deselecting different trips', () => {
+    const initialGlobalMarkers = markersForMap(routeOverview(), null)
+
+    expect(markersForSelectedTrip(routeOverview(), 'italy').map((marker) => marker.markerLabel))
+      .toEqual(['1', '2'])
+    expect(markersForSelectedTrip(routeOverview(), 'japan').map((marker) => marker.markerLabel))
+      .toEqual(['1', '2'])
+    expect(markersForMap(routeOverview(), null)).toEqual(initialGlobalMarkers)
   })
 
   it('does not create routes for zero or one located stop', () => {
@@ -119,10 +135,9 @@ describe('map data', () => {
     ])
   })
 
-  it('isolates the selected route and includes multiple routes in the global overview', () => {
+  it('keeps global routes empty and restores exactly one selected itinerary route', () => {
     const globalRoutes = routesForMap(routeOverview(), null)
-    expect(globalRoutes.map((route) => route.tripId)).toEqual(['italy', 'japan'])
-    expect(globalRoutes.map((route) => route.lineOffset)).toEqual([-1.5, 1.5])
+    expect(globalRoutes).toEqual([])
 
     const selectedRoutes = routesForMap(
       routeOverview(),
@@ -134,13 +149,19 @@ describe('map data', () => {
     )
     expect(selectedRoutes).toHaveLength(1)
     expect(selectedRoutes[0]).toMatchObject({ tripId: 'japan', isSelectedTrip: true, lineOffset: 0 })
+    expect(routesForSelectedTrip(null)).toEqual([])
+    expect(routesForMap(routeOverview(), null)).toEqual([])
   })
 
   it('derives a stable visual identity and carries it into GeoJSON presentation data', () => {
     expect(tripVisualIdentity('italy')).toEqual(tripVisualIdentity('italy'))
     expect(tripVisualIdentity('italy')).not.toEqual(tripVisualIdentity('japan'))
 
-    const routes = routesForMap(routeOverview(), null)
+    const routes = routesForSelectedTrip(tripWithRouteStops(
+      'italy',
+      ['rome', 1, 41.9028, 12.4964],
+      ['florence', 2, 43.7696, 11.2558],
+    ))
     const geoJson = routeFeatureCollection(routes)
     expect(geoJson.type).toBe('FeatureCollection')
     expect(geoJson.features.map((feature) => feature.properties.color))
@@ -148,17 +169,30 @@ describe('map data', () => {
     expect(geoJson.features[0]?.geometry.coordinates[0]).toEqual([12.4964, 41.9028])
   })
 
-  it('separates routes for two trips that share the same city', () => {
+  it('groups the same City ID across trips into one global place with both visits', () => {
     const sharedOverview = routeOverview(true)
-    const routes = routesForMap(sharedOverview, null)
-    expect(routes[0]?.coordinates[0]).toEqual(routes[1]?.coordinates[0])
-    expect(routes[0]?.lineOffset).not.toBe(routes[1]?.lineOffset)
+    const romePlaces = placesForGlobalMap(sharedOverview)
+      .filter((place) => place.cityName === 'Rome')
 
-    const sharedMarkers = markersForMap(sharedOverview, null)
-      .filter((marker) => marker.cityName === 'Rome')
-    expect(sharedMarkers).toHaveLength(2)
-    expect(sharedMarkers.map((marker) => marker.color))
-      .toEqual(sharedMarkers.map((marker) => tripVisualIdentity(marker.tripId).color))
+    expect(romePlaces).toHaveLength(1)
+    expect(romePlaces[0]?.cityId).toBe('city-rome')
+    expect(romePlaces[0]?.visits.map((visit) => visit.tripId)).toEqual(['italy', 'japan'])
+    expect(romePlaces[0]?.markerLabel).toBeNull()
+    expect(routesForMap(sharedOverview, null)).toEqual([])
+  })
+
+  it('keeps distinct City IDs separate even at identical coordinates', () => {
+    const distinctPlaces = placesForGlobalMap({
+      visitedCountryCodes: ['IT'],
+      markers: [
+        routeMarker('italy', 'nearby-a', 1, 'Nearby A', 43.7, 11.2, 'IT', 'Italy', 'city-a'),
+        routeMarker('japan', 'nearby-b', 1, 'Nearby B', 43.7, 11.2, 'IT', 'Italy', 'city-b'),
+      ],
+    })
+
+    expect(distinctPlaces).toHaveLength(2)
+    expect(distinctPlaces.map((place) => place.cityId)).toEqual(['city-a', 'city-b'])
+    expect(distinctPlaces[0]?.coordinate).toEqual(distinctPlaces[1]?.coordinate)
   })
 
   it('separates exact-coordinate marker collisions and keeps every marker addressable', () => {
@@ -234,7 +268,7 @@ describe('map data', () => {
     expect(routesForMap(null, updatedTrip)[0]?.coordinates[2]).toEqual([12.3155, 45.4408])
   })
 
-  it('keeps route geometry and camera targets unchanged when only journal fields change', () => {
+  it('keeps place identity, route geometry, and camera targets unchanged for journal or photo-only changes', () => {
     const trip = tripWithRouteStops(
       'japan',
       ['tokyo', 1, 35.6762, 139.6503],
@@ -250,11 +284,29 @@ describe('map data', () => {
         arrivalDate: index === 0 ? '2026-04-02' : '2026-04-06',
         departureDate: index === 0 ? '2026-04-05' : '2026-04-09',
         note: index === 0 ? 'Tokyo journal' : 'Kyoto journal',
+        photos: index === 0 ? [{
+          id: 'photo-tokyo',
+          originalFilename: 'tokyo.jpg',
+          contentType: 'image/jpeg',
+          size: 42,
+          position: 1,
+          contentUrl: '/photos/tokyo',
+        }] : [],
+      })),
+    }
+    const baseOverview = routeOverview()
+    const overviewWithJournalNoise = {
+      ...baseOverview,
+      markers: baseOverview.markers.map((marker) => ({
+        ...marker,
+        note: 'Not part of map identity',
+        photos: [{ id: 'ignored-photo' }],
       })),
     }
 
     expect(routesForMap(null, journaledTrip)).toEqual(routesForMap(null, trip))
     expect(selectedTripCameraTarget(journaledTrip)).toEqual(selectedTripCameraTarget(trip))
+    expect(placesForGlobalMap(overviewWithJournalNoise)).toEqual(placesForGlobalMap(baseOverview))
   })
 
   it('only creates focus markers for itinerary stops with coordinates', () => {
@@ -439,7 +491,7 @@ function routeOverview(sharedCity = false): TripMapOverview {
     visitedCountryCodes: ['IT', 'JP'],
     markers: [
       routeMarker('italy', 'florence', 2, 'Florence', 43.7696, 11.2558, 'IT', 'Italy'),
-      routeMarker('italy', 'rome-italy', 1, 'Rome', 41.9028, 12.4964, 'IT', 'Italy'),
+      routeMarker('italy', 'rome-italy', 1, 'Rome', 41.9028, 12.4964, 'IT', 'Italy', 'city-rome'),
       routeMarker(
         'japan',
         sharedCity ? 'rome-japan' : 'tokyo',
@@ -449,6 +501,7 @@ function routeOverview(sharedCity = false): TripMapOverview {
         sharedCity ? 12.4964 : 139.6503,
         sharedCity ? 'IT' : 'JP',
         sharedCity ? 'Italy' : 'Japan',
+        sharedCity ? 'city-rome' : 'city-tokyo',
       ),
       routeMarker('japan', 'kyoto', 2, 'Kyoto', 35.0116, 135.7681, 'JP', 'Japan'),
     ],
@@ -464,10 +517,12 @@ function routeMarker(
   longitude: number,
   countryCode: string,
   countryName: string,
+  cityId = `city-${stopId}`,
 ) {
   return {
     tripId,
     stopId,
+    cityId,
     position,
     cityName,
     latitude,
@@ -484,9 +539,8 @@ function projectedMarker(
   y: number,
 ) {
   return {
-    tripId,
-    stopId,
-    position,
+    markerKey: `${tripId}:${stopId}`,
+    collisionOrder: position,
     screenCoordinate: [x, y] as [number, number],
   }
 }

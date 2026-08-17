@@ -52,6 +52,7 @@ export interface TripSummary {
 export interface TripMapMarker {
   tripId: string
   stopId: string
+  cityId: string
   position: number
   cityName: string
   latitude: number
