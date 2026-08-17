@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
-import type { Trip, TripMapOverview } from '../../types/travel'
+import type { Trip, TripMapOverview, TripSummary } from '../../types/travel'
 import {
   countryCodesForMap,
   countryFeatureFilter,
+  markerOffsetsForScreenCollisions,
+  markerScreenKey,
   markersForMap,
+  routeFeatureCollection,
+  routesForMap,
   selectedTripCameraTarget,
   selectedTripCameraTargetKey,
 } from './mapData'
+import { ensureTripRouteLayers, removeTripRouteLayers, updateTripRouteData } from './routeLayers'
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const COUNTRY_BOUNDARIES_URL =
@@ -21,11 +26,17 @@ const COUNTRY_LINE = '#8b3d0b'
 interface MapViewProps {
   overview: TripMapOverview | null
   selectedTrip: Trip | null
+  trips: TripSummary[]
 }
 
 interface CountryBoundaryData {
   type: 'FeatureCollection'
   features: CountryBoundaryFeature[]
+}
+
+interface MapMarkerReference {
+  data: ReturnType<typeof markersForMap>[number]
+  marker: Marker
 }
 
 interface CountryBoundaryFeature {
@@ -38,18 +49,21 @@ type CountryGeometry =
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] }
 
-export function MapView({ overview, selectedTrip }: MapViewProps) {
+export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const markerRefs = useRef<Marker[]>([])
+  const markerRefs = useRef<MapMarkerReference[]>([])
   const selectedTripRef = useRef(selectedTrip)
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
   const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
+  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip))
+  const routeDataKey = JSON.stringify(routeData)
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
   const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)
+  const tripNamesKey = JSON.stringify(trips.map((trip) => [trip.id, trip.name]))
 
   useEffect(() => {
     selectedTripRef.current = selectedTrip
@@ -116,7 +130,7 @@ export function MapView({ overview, selectedTrip }: MapViewProps) {
       map.off('style.load', markMapReady)
       map.off('resize', resetDefaultViewport)
       if (mapRef.current === map) {
-        markerRefs.current.forEach((marker) => marker.remove())
+        markerRefs.current.forEach(({ marker }) => marker.remove())
         markerRefs.current = []
         mapRef.current = null
       }
@@ -151,18 +165,68 @@ export function MapView({ overview, selectedTrip }: MapViewProps) {
       return
     }
 
-    markerRefs.current.forEach((marker) => marker.remove())
+    ensureTripRouteLayers(map)
+
+    return () => {
+      if (mapRef.current !== map) {
+        return
+      }
+      removeTripRouteLayers(map)
+    }
+  }, [readyMap])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    updateTripRouteData(map, routeData)
+  }, [readyMap, routeDataKey])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    markerRefs.current.forEach(({ marker }) => marker.remove())
+    const tripNames = new Map(trips.map((trip) => [trip.id, trip.name]))
     const markers = markersForMap(overview, selectedTrip?.id ?? null)
-      .map((marker) => createMarker(marker).addTo(map))
+      .map((data): MapMarkerReference => ({
+        data,
+        marker: createMarker(data, tripNames.get(data.tripId)).addTo(map),
+      }))
+    const updateMarkerOffsets = () => {
+      const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
+        const point = map.project(data.coordinate)
+        return {
+          tripId: data.tripId,
+          stopId: data.stopId,
+          position: data.position,
+          screenCoordinate: [point.x, point.y],
+        }
+      }))
+
+      markers.forEach(({ data, marker }) => {
+        marker.setOffset(offsets.get(markerScreenKey(data)) ?? [0, 0])
+      })
+    }
+
+    updateMarkerOffsets()
+    map.on('move', updateMarkerOffsets)
+    map.on('resize', updateMarkerOffsets)
     markerRefs.current = markers
 
     return () => {
-      markers.forEach((marker) => marker.remove())
+      map.off('move', updateMarkerOffsets)
+      map.off('resize', updateMarkerOffsets)
+      markers.forEach(({ marker }) => marker.remove())
       if (markerRefs.current === markers) {
         markerRefs.current = []
       }
     }
-  }, [readyMap, overview, selectedTrip?.id])
+  }, [readyMap, overview, selectedTrip?.id, tripNamesKey])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -292,11 +356,15 @@ function isCountryGeometry(geometry: unknown): geometry is CountryGeometry {
     && Array.isArray((geometry as { coordinates?: unknown }).coordinates)
 }
 
-function createMarker(marker: ReturnType<typeof markersForMap>[number]): Marker {
+function createMarker(marker: ReturnType<typeof markersForMap>[number], tripName: string | undefined): Marker {
   const element = document.createElement('button')
   element.className = `map-marker${marker.isSelectedTrip ? ' is-selected' : ''}`
   element.type = 'button'
-  element.setAttribute('aria-label', `${marker.cityName}, ${marker.country.name}`)
+  element.style.setProperty('--trip-color', marker.color)
+  element.setAttribute(
+    'aria-label',
+    `${marker.cityName}, ${marker.country.name}${tripName ? ` — ${tripName}` : ''}`,
+  )
   element.textContent = marker.markerLabel
 
   const popupContent = document.createElement('div')
@@ -305,8 +373,13 @@ function createMarker(marker: ReturnType<typeof markersForMap>[number]): Marker 
   const country = document.createElement('span')
   country.textContent = marker.country.name
   popupContent.append(city, country)
+  if (tripName) {
+    const trip = document.createElement('span')
+    trip.textContent = `Trip: ${tripName}`
+    popupContent.append(trip)
+  }
 
-  return new Marker({ element, anchor: 'center' })
+  return new Marker({ element, anchor: 'center', offset: marker.pixelOffset })
     .setLngLat(marker.coordinate)
     .setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
 }

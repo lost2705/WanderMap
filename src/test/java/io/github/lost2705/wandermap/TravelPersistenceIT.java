@@ -8,6 +8,7 @@ import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
+import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
@@ -48,16 +49,20 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 SELECT COUNT(*)
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                  AND table_name IN ('countries', 'cities', 'trips', 'trip_stops')
+                  AND table_name IN ('countries', 'cities', 'trips', 'trip_stops', 'trip_stop_photos')
                 """,
                 Integer.class);
 
-        assertThat(travelTableCount).isEqualTo(4);
+        assertThat(travelTableCount).isEqualTo(5);
         assertThat(countryRepository.findById("IT"))
                 .isPresent()
                 .get()
                 .extracting(Country::getName)
                 .isEqualTo("Italy");
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '8' AND success = TRUE",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -69,6 +74,27 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         assertThat(reloadedTrip.getName()).isEqualTo("Italy 2026");
         assertThat(reloadedTrip.getStartDate()).isNull();
         assertThat(reloadedTrip.getEndDate()).isNull();
+        assertThat(reloadedTrip.getDescription()).isNull();
+    }
+
+    @Test
+    void migrationKeepsPreJournalStyleRowsValidWithNullableFields() {
+        UUID tripId = UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO trips (id, name) VALUES (?, ?)", tripId, "Legacy trip");
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT description IS NULL FROM trips WHERE id = ?", Boolean.class, tripId)).isTrue();
+
+        City city = persistCity("Legacy city " + UUID.randomUUID());
+        UUID stopId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
+                stopId, tripId, city.getId(), 1);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT arrival_date IS NULL AND departure_date IS NULL AND note IS NULL FROM trip_stops WHERE id = ?",
+                Boolean.class,
+                stopId)).isTrue();
     }
 
     @Test
@@ -82,6 +108,57 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         Trip reloadedTrip = tripRepository.findById(trip.getId()).orElseThrow();
         assertThat(reloadedTrip.getStartDate()).isEqualTo(startDate);
         assertThat(reloadedTrip.getEndDate()).isEqualTo(endDate);
+    }
+
+    @Test
+    void persistsTripAndStopJournalFields() {
+        City tokyo = persistCity("Tokyo journal " + UUID.randomUUID());
+        Trip trip = new Trip(
+                "Japan journal",
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 12),
+                "Cherry blossom season");
+        TripStop stop = trip.addStop(
+                tokyo,
+                LocalDate.of(2026, 4, 2),
+                LocalDate.of(2026, 4, 5),
+                "Stayed near Ueno Park.");
+        UUID stopId = stop.getId();
+        tripRepository.saveAndFlush(trip);
+        entityManager.clear();
+
+        Trip reloadedTrip = tripRepository.findByIdWithStops(trip.getId()).orElseThrow();
+        TripStop reloadedStop = reloadedTrip.getStops().getFirst();
+        assertThat(reloadedTrip.getDescription()).isEqualTo("Cherry blossom season");
+        assertThat(reloadedStop.getId()).isEqualTo(stopId);
+        assertThat(reloadedStop.getArrivalDate()).isEqualTo(LocalDate.of(2026, 4, 2));
+        assertThat(reloadedStop.getDepartureDate()).isEqualTo(LocalDate.of(2026, 4, 5));
+        assertThat(reloadedStop.getNote()).isEqualTo("Stayed near Ueno Park.");
+    }
+
+    @Test
+    void persistsAndReloadsOrderedPhotoMetadataWithoutBinaryData() {
+        City rome = persistCity("Rome photos " + UUID.randomUUID());
+        Trip trip = new Trip("Italy photo persistence", null, null);
+        TripStop stop = trip.addStop(rome);
+        TripStopPhoto first = stop.addPhoto("ab/first-" + UUID.randomUUID(), "first.jpg", "image/jpeg", 101);
+        TripStopPhoto second = stop.addPhoto("cd/second-" + UUID.randomUUID(), "second.png", "image/png", 202);
+        UUID tripId = trip.getId();
+
+        tripRepository.saveAndFlush(trip);
+        entityManager.clear();
+
+        Trip reloaded = tripRepository.findByIdWithStops(tripId).orElseThrow();
+        assertThat(reloaded.getStops().getFirst().getPhotos())
+                .extracting(TripStopPhoto::getId)
+                .containsExactly(first.getId(), second.getId());
+        assertThat(reloaded.getStops().getFirst().getPhotos())
+                .extracting(TripStopPhoto::getPosition)
+                .containsExactly(1, 2);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM trip_stop_photos WHERE trip_stop_id = ?",
+                Integer.class,
+                stop.getId())).isEqualTo(2);
     }
 
     @Test

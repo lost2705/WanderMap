@@ -6,6 +6,7 @@ import io.github.lost2705.wandermap.travel.api.dto.TripResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripMapMarkerResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
+import io.github.lost2705.wandermap.travel.api.dto.TripStopPhotoResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripSummaryResponse;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.Country;
@@ -29,12 +30,18 @@ final class TravelApiMapper {
                 trip.getName(),
                 trip.getStartDate(),
                 trip.getEndDate(),
+                trip.getDescription(),
                 trip.getStops().stream().map(TravelApiMapper::toResponse).toList());
     }
 
     static TripSummaryResponse toSummaryResponse(Trip trip) {
         return new TripSummaryResponse(
-                trip.getId(), trip.getName(), trip.getStartDate(), trip.getEndDate(), trip.getStops().size());
+                trip.getId(),
+                trip.getName(),
+                trip.getStartDate(),
+                trip.getEndDate(),
+                trip.getDescription(),
+                trip.getStops().size());
     }
 
     static TripMapOverviewResponse toMapOverviewResponse(List<Trip> trips) {
@@ -53,7 +60,27 @@ final class TravelApiMapper {
     }
 
     static TripStopResponse toResponse(TripStop stop) {
-        return new TripStopResponse(stop.getId(), stop.getPosition(), toResponse(stop.getCity()));
+        return new TripStopResponse(
+                stop.getId(),
+                stop.getPosition(),
+                stop.getArrivalDate(),
+                stop.getDepartureDate(),
+                stop.getNote(),
+                toResponse(stop.getCity()),
+                stop.getPhotos().stream().map(TravelApiMapper::toResponse).toList());
+    }
+
+    static TripStopPhotoResponse toResponse(io.github.lost2705.wandermap.travel.domain.TripStopPhoto photo) {
+        TripStop stop = photo.getTripStop();
+        String contentUrl = "/api/trips/%s/stops/%s/photos/%s/content".formatted(
+                stop.getTrip().getId(), stop.getId(), photo.getId());
+        return new TripStopPhotoResponse(
+                photo.getId(),
+                photo.getOriginalFilename(),
+                photo.getContentType(),
+                photo.getSize(),
+                photo.getPosition(),
+                contentUrl);
     }
 
     private static CityResponse toResponse(City city) {

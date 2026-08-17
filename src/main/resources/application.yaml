@@ -12,6 +12,10 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+  servlet:
+    multipart:
+      max-file-size: ${WANDERMAP_PHOTOS_MAX_SIZE:10MB}
+      max-request-size: ${WANDERMAP_PHOTOS_MAX_SIZE:10MB}
 
 management:
   endpoints:
@@ -26,3 +30,7 @@ wandermap:
     user-agent: ${WANDERMAP_GEOCODING_USER_AGENT:WanderMap/0.1}
     connect-timeout-millis: ${WANDERMAP_GEOCODING_CONNECT_TIMEOUT_MILLIS:2000}
     read-timeout-millis: ${WANDERMAP_GEOCODING_READ_TIMEOUT_MILLIS:4000}
+  storage:
+    photos:
+      root: ${WANDERMAP_PHOTOS_ROOT:./data/photos}
+      max-size: ${WANDERMAP_PHOTOS_MAX_SIZE:10MB}

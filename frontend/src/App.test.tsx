@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trip, TripMapOverview, TripSummary } from './types/travel'
 
@@ -8,12 +8,15 @@ vi.mock('./api/trips', () => ({
   addStop: vi.fn(),
   createTrip: vi.fn(),
   deleteStop: vi.fn(),
+  deleteStopPhoto: vi.fn(),
   deleteTrip: vi.fn(),
   getMapOverview: vi.fn(),
   getTrip: vi.fn(),
   listTrips: vi.fn(),
   moveStop: vi.fn(),
+  updateStopJournal: vi.fn(),
   updateTrip: vi.fn(),
+  uploadStopPhoto: vi.fn(),
 }))
 
 vi.mock('./features/map/MapView', async () => {
@@ -39,9 +42,12 @@ vi.mock('./features/map/MapView', async () => {
 })
 
 import {
+  deleteStopPhoto,
   getMapOverview,
   getTrip,
   listTrips,
+  updateStopJournal,
+  uploadStopPhoto,
 } from './api/trips'
 import App from './App'
 
@@ -51,6 +57,7 @@ const tripSummaries: TripSummary[] = [
     name: 'Italy',
     startDate: null,
     endDate: null,
+    description: null,
     stopCount: 1,
   },
   {
@@ -58,6 +65,7 @@ const tripSummaries: TripSummary[] = [
     name: 'Japan 2026',
     startDate: null,
     endDate: null,
+    description: null,
     stopCount: 1,
   },
 ]
@@ -67,10 +75,15 @@ const italyTrip: Trip = {
   name: 'Italy',
   startDate: null,
   endDate: null,
+  description: null,
   stops: [
     {
       id: 'rome',
       position: 1,
+      arrivalDate: null,
+      departureDate: null,
+      note: null,
+      photos: [],
       city: {
         id: 'city-rome',
         name: 'Rome',
@@ -87,10 +100,15 @@ const japanTrip: Trip = {
   name: 'Japan 2026',
   startDate: null,
   endDate: null,
+  description: null,
   stops: [
     {
       id: 'tokyo',
       position: 1,
+      arrivalDate: null,
+      departureDate: null,
+      note: null,
+      photos: [],
       city: {
         id: 'city-tokyo',
         name: 'Tokyo',
@@ -177,6 +195,110 @@ describe('App trip selection', () => {
 
     await screen.findByRole('heading', { name: 'Japan 2026' })
     expectMapState('japan', 'JP', 'japan')
+  })
+
+  it('refreshes journal content without changing the selected map data', async () => {
+    const updatedItalyTrip: Trip = {
+      ...italyTrip,
+      stops: italyTrip.stops.map((stop) => ({
+        ...stop,
+        arrivalDate: '2026-05-10',
+        departureDate: '2026-05-12',
+        note: 'An evening walk through Trastevere.',
+      })),
+    }
+    vi.mocked(updateStopJournal).mockResolvedValue(updatedItalyTrip.stops[0]!)
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    expectMapState('italy', 'IT', 'italy')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit journal for Rome' }))
+    fireEvent.change(screen.getByLabelText('Arrival'), { target: { value: '2026-05-10' } })
+    fireEvent.change(screen.getByLabelText('Departure'), { target: { value: '2026-05-12' } })
+    fireEvent.change(screen.getByLabelText('Note'), {
+      target: { value: 'An evening walk through Trastevere.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save journal' }))
+
+    await screen.findByText('An evening walk through Trastevere.')
+    expect(updateStopJournal).toHaveBeenCalledWith('italy', 'rome', {
+      arrivalDate: '2026-05-10',
+      departureDate: '2026-05-12',
+      note: 'An evening walk through Trastevere.',
+    })
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expectMapState('italy', 'IT', 'italy')
+  })
+
+  it('adds a photo locally without refetching or disturbing selected map state', async () => {
+    const createdPhoto = {
+      id: 'rome-photo',
+      originalFilename: 'Rome evening.jpg',
+      contentType: 'image/jpeg',
+      size: 123,
+      position: 1,
+      contentUrl: '/api/photos/rome-photo',
+    }
+    vi.mocked(uploadStopPhoto).mockResolvedValue(createdPhoto)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const file = new File(['jpeg'], 'Rome evening.jpg', { type: 'image/jpeg' })
+
+    fireEvent.change(screen.getByLabelText('Add photo for Rome'), { target: { files: [file] } })
+
+    expect(await screen.findByRole('img', { name: 'Rome memory 1' })).toBeTruthy()
+    expect(uploadStopPhoto).toHaveBeenCalledWith('italy', 'rome', file)
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expect(getMapOverview).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Italy1 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expectMapState('italy', 'IT', 'italy')
+  })
+
+  it('shows an upload failure without changing the selected trip or map data', async () => {
+    vi.mocked(uploadStopPhoto).mockRejectedValue(new Error('Photo storage is unavailable.'))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    fireEvent.change(screen.getByLabelText('Add photo for Rome'), {
+      target: { files: [new File(['bad'], 'bad.jpg', { type: 'image/jpeg' })] },
+    })
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Photo storage is unavailable.')
+    expect(screen.queryByRole('img', { name: /Rome memory/ })).toBeNull()
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expect(getMapOverview).toHaveBeenCalledTimes(1)
+    expectMapState('italy', 'IT', 'italy')
+  })
+
+  it('deletes a photo locally without refetching or changing selection', async () => {
+    const tripWithPhoto: Trip = {
+      ...italyTrip,
+      stops: italyTrip.stops.map((stop) => ({
+        ...stop,
+        photos: [{
+          id: 'rome-photo',
+          originalFilename: 'Rome evening.jpg',
+          contentType: 'image/jpeg',
+          size: 123,
+          position: 1,
+          contentUrl: '/api/photos/rome-photo',
+        }],
+      })),
+    }
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? tripWithPhoto : japanTrip))
+    vi.mocked(deleteStopPhoto).mockResolvedValue()
+    render(<App />)
+    await screen.findByRole('img', { name: 'Rome memory 1' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Rome evening.jpg' }))
+
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'Rome memory 1' })).toBeNull())
+    expect(deleteStopPhoto).toHaveBeenCalledWith('italy', 'rome', 'rome-photo')
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expect(getMapOverview).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Italy1 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expectMapState('italy', 'IT', 'italy')
   })
 })
 

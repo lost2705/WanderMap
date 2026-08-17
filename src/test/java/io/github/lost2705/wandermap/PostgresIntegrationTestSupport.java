@@ -1,5 +1,8 @@
 package io.github.lost2705.wandermap;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -16,6 +19,8 @@ abstract class PostgresIntegrationTestSupport {
                     .withUsername("wandermap")
                     .withPassword("wandermap");
 
+    private static final Path PHOTO_STORAGE_ROOT = createPhotoStorageRoot();
+
     static {
         POSTGRES.start();
     }
@@ -25,5 +30,19 @@ abstract class PostgresIntegrationTestSupport {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("wandermap.storage.photos.root", () -> PHOTO_STORAGE_ROOT.toString());
+        registry.add("wandermap.storage.photos.max-size", () -> "1KB");
+    }
+
+    protected static Path photoStorageRoot() {
+        return PHOTO_STORAGE_ROOT;
+    }
+
+    private static Path createPhotoStorageRoot() {
+        try {
+            return Files.createTempDirectory("wandermap-test-photos-");
+        } catch (IOException exception) {
+            throw new ExceptionInInitializerError(exception);
+        }
     }
 }

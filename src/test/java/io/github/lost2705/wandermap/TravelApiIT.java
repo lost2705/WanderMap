@@ -6,6 +6,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Arrays;
+import javax.imageio.ImageIO;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -13,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -26,6 +33,9 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void managesTripAndStopsEndToEnd() throws Exception {
@@ -118,6 +128,175 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(deleteResponse.statusCode()).isEqualTo(204);
 
         assertProblem(request("GET", "/api/trips/" + tripId, null), 404, "TRIP_NOT_FOUND");
+    }
+
+    @Test
+    void managesTripAndStopJournalFieldsEndToEnd() throws Exception {
+        HttpResponse<String> createResponse = request(
+                "POST",
+                "/api/trips",
+                """
+                {
+                  "name":"Japan 2026",
+                  "startDate":"2026-04-01",
+                  "endDate":"2026-04-12",
+                  "description":"Cherry blossoms, trains, and quiet mornings."
+                }
+                """);
+        assertThat(createResponse.statusCode()).isEqualTo(201);
+        JsonNode createdTrip = json(createResponse);
+        String tripId = createdTrip.path("id").asText();
+        assertThat(createdTrip.path("startDate").asText()).isEqualTo("2026-04-01");
+        assertThat(createdTrip.path("endDate").asText()).isEqualTo("2026-04-12");
+        assertThat(createdTrip.path("description").asText())
+                .isEqualTo("Cherry blossoms, trains, and quiet mornings.");
+
+        HttpResponse<String> addResponse = request(
+                "POST",
+                "/api/trips/" + tripId + "/stops",
+                """
+                {
+                  "countryCode":"JP",
+                  "cityName":"Tokyo",
+                  "latitude":35.6762,
+                  "longitude":139.6503,
+                  "arrivalDate":"2026-04-02",
+                  "departureDate":"2026-04-05",
+                  "note":"Cherry blossoms in Ueno Park."
+                }
+                """);
+        assertThat(addResponse.statusCode()).isEqualTo(201);
+        JsonNode createdStop = json(addResponse);
+        String stopId = createdStop.path("id").asText();
+        String cityId = createdStop.path("city").path("id").asText();
+        assertThat(createdStop.path("arrivalDate").asText()).isEqualTo("2026-04-02");
+        assertThat(createdStop.path("departureDate").asText()).isEqualTo("2026-04-05");
+        assertThat(createdStop.path("note").asText()).isEqualTo("Cherry blossoms in Ueno Park.");
+
+        JsonNode overviewBeforeJournalUpdate = json(request("GET", "/api/trips/map-overview", null));
+
+        assertProblem(
+                request(
+                        "PATCH",
+                        "/api/trips/" + tripId + "/stops/" + stopId + "/journal",
+                        """
+                        {"arrivalDate":"2026-04-06","departureDate":"2026-04-05"}
+                        """),
+                400,
+                "INVALID_REQUEST");
+        assertProblem(
+                request(
+                        "PATCH",
+                        "/api/trips/" + tripId + "/stops/" + stopId + "/journal",
+                        """
+                        {"arrivalDate":"2026-03-31"}
+                        """),
+                400,
+                "INVALID_REQUEST");
+        assertProblem(
+                request(
+                        "PATCH",
+                        "/api/trips/" + tripId + "/stops/" + stopId + "/journal",
+                        """
+                        {"departureDate":"2026-04-13"}
+                        """),
+                400,
+                "INVALID_REQUEST");
+
+        HttpResponse<String> journalResponse = request(
+                "PATCH",
+                "/api/trips/" + tripId + "/stops/" + stopId + "/journal",
+                """
+                {
+                  "arrivalDate":"2026-04-03",
+                  "departureDate":"2026-04-06",
+                  "note":"Tsukiji breakfast and an evening in Shinjuku."
+                }
+                """);
+        assertThat(journalResponse.statusCode()).isEqualTo(200);
+        JsonNode updatedStop = json(journalResponse);
+        assertThat(updatedStop.path("id").asText()).isEqualTo(stopId);
+        assertThat(updatedStop.path("city").path("id").asText()).isEqualTo(cityId);
+        assertThat(updatedStop.path("city").path("latitude").asDouble()).isEqualTo(35.6762d);
+        assertThat(updatedStop.path("city").path("longitude").asDouble()).isEqualTo(139.6503d);
+        assertThat(updatedStop.path("position").asInt()).isEqualTo(1);
+        assertThat(updatedStop.path("arrivalDate").asText()).isEqualTo("2026-04-03");
+        assertThat(updatedStop.path("departureDate").asText()).isEqualTo("2026-04-06");
+        assertThat(updatedStop.path("note").asText())
+                .isEqualTo("Tsukiji breakfast and an evening in Shinjuku.");
+        assertThat(json(request("GET", "/api/trips/map-overview", null)))
+                .isEqualTo(overviewBeforeJournalUpdate);
+
+        assertProblem(
+                request(
+                        "PATCH",
+                        "/api/trips/" + tripId,
+                        """
+                        {
+                          "name":"Invalid shortened trip",
+                          "startDate":"2026-04-04",
+                          "endDate":"2026-04-12",
+                          "description":"Must not persist"
+                        }
+                        """),
+                400,
+                "INVALID_REQUEST");
+        assertThat(getTrip(tripId).path("name").asText()).isEqualTo("Japan 2026");
+
+        HttpResponse<String> updateTripResponse = request(
+                "PATCH",
+                "/api/trips/" + tripId,
+                """
+                {
+                  "name":"Japan Spring 2026",
+                  "startDate":"2026-04-01",
+                  "endDate":"2026-04-13",
+                  "description":"Tokyo first, then Kyoto."
+                }
+                """);
+        assertThat(updateTripResponse.statusCode()).isEqualTo(200);
+        assertThat(json(updateTripResponse).path("description").asText()).isEqualTo("Tokyo first, then Kyoto.");
+
+        JsonNode persistedTrip = getTrip(tripId);
+        assertThat(persistedTrip.path("description").asText()).isEqualTo("Tokyo first, then Kyoto.");
+        assertThat(persistedTrip.path("stops").get(0).path("arrivalDate").asText()).isEqualTo("2026-04-03");
+        assertThat(persistedTrip.path("stops").get(0).path("departureDate").asText()).isEqualTo("2026-04-06");
+        assertThat(persistedTrip.path("stops").get(0).path("note").asText())
+                .isEqualTo("Tsukiji breakfast and an evening in Shinjuku.");
+
+        HttpResponse<String> clearJournalResponse = request(
+                "PATCH", "/api/trips/" + tripId + "/stops/" + stopId + "/journal", "{}");
+        assertThat(clearJournalResponse.statusCode()).isEqualTo(200);
+        JsonNode clearedStop = json(clearJournalResponse);
+        assertThat(clearedStop.path("arrivalDate").isNull()).isTrue();
+        assertThat(clearedStop.path("departureDate").isNull()).isTrue();
+        assertThat(clearedStop.path("note").isNull()).isTrue();
+
+        HttpResponse<String> clearTripJournalResponse = request(
+                "PATCH", "/api/trips/" + tripId, "{\"name\":\"Japan journal cleared\"}");
+        assertThat(clearTripJournalResponse.statusCode()).isEqualTo(200);
+        JsonNode clearedTrip = json(clearTripJournalResponse);
+        assertThat(clearedTrip.path("startDate").isNull()).isTrue();
+        assertThat(clearedTrip.path("endDate").isNull()).isTrue();
+        assertThat(clearedTrip.path("description").isNull()).isTrue();
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void keepsLegacyCoordinateLessAndJournalLessRequestsCompatible() throws Exception {
+        String tripId = createTrip("Legacy journal fields " + UUID.randomUUID());
+        JsonNode stop = addStop(tripId, "Rome legacy " + UUID.randomUUID());
+
+        JsonNode trip = getTrip(tripId);
+        assertThat(trip.path("description").isNull()).isTrue();
+        assertThat(stop.path("arrivalDate").isNull()).isTrue();
+        assertThat(stop.path("departureDate").isNull()).isTrue();
+        assertThat(stop.path("note").isNull()).isTrue();
+        assertThat(stop.path("photos").isArray()).isTrue();
+        assertThat(stop.path("photos")).isEmpty();
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
     }
 
     @Test
@@ -234,6 +413,147 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
     }
 
+    @Test
+    void uploadsServesOrdersAndDeletesStopPhotosEndToEnd() throws Exception {
+        String tripId = createTrip("Photo journal " + UUID.randomUUID());
+        JsonNode stop = addStop(tripId, "Rome photos " + UUID.randomUUID());
+        String stopId = stop.path("id").asText();
+        byte[] jpegContent = imageBytes("jpg");
+        byte[] pngContent = imageBytes("png");
+
+        HttpResponse<String> jpegResponse = uploadPhoto(
+                tripId,
+                stopId,
+                "../summer memories.jpg",
+                "image/jpeg",
+                jpegContent);
+        HttpResponse<String> pngResponse = uploadPhoto(
+                tripId,
+                stopId,
+                "second photo.png",
+                "image/png",
+                pngContent);
+        HttpResponse<String> webpResponse = uploadPhoto(
+                tripId,
+                stopId,
+                "third.webp",
+                "image/webp",
+                webp("VP8 ", bytes(1, 2, 3, 4)));
+
+        assertThat(jpegResponse.statusCode()).isEqualTo(201);
+        assertThat(pngResponse.statusCode()).isEqualTo(201);
+        assertThat(webpResponse.statusCode()).isEqualTo(201);
+        JsonNode jpeg = json(jpegResponse);
+        JsonNode png = json(pngResponse);
+        JsonNode webp = json(webpResponse);
+        assertThat(jpeg.path("originalFilename").asText()).isEqualTo("summer memories.jpg");
+        assertThat(jpeg.path("contentType").asText()).isEqualTo("image/jpeg");
+        assertThat(jpeg.path("size").asLong()).isEqualTo(jpegContent.length);
+        assertThat(jpeg.path("position").asInt()).isEqualTo(1);
+        assertThat(png.path("position").asInt()).isEqualTo(2);
+        assertThat(webp.path("position").asInt()).isEqualTo(3);
+        assertThat(jpeg.path("contentUrl").asText()).isEqualTo(
+                "/api/trips/" + tripId + "/stops/" + stopId + "/photos/" + jpeg.path("id").asText() + "/content");
+        assertThat(jpeg.path("storageKey").isMissingNode()).isTrue();
+
+        String jpegStorageKey = storageKey(jpeg.path("id").asText());
+        String pngStorageKey = storageKey(png.path("id").asText());
+        String webpStorageKey = storageKey(webp.path("id").asText());
+        assertThat(jpegStorageKey).doesNotContain("summer memories.jpg").doesNotContain("..");
+        assertThat(Files.exists(photoStorageRoot().resolve(jpegStorageKey))).isTrue();
+
+        JsonNode persistedPhotos = getTrip(tripId).path("stops").get(0).path("photos");
+        assertThat(persistedPhotos).hasSize(3);
+        assertThat(persistedPhotos.get(0).path("id").asText()).isEqualTo(jpeg.path("id").asText());
+        assertThat(persistedPhotos.get(1).path("id").asText()).isEqualTo(png.path("id").asText());
+        assertThat(persistedPhotos.get(2).path("id").asText()).isEqualTo(webp.path("id").asText());
+
+        HttpResponse<byte[]> contentResponse = requestBytes("GET", jpeg.path("contentUrl").asText());
+        assertThat(contentResponse.statusCode()).isEqualTo(200);
+        assertThat(contentResponse.headers().firstValue("Content-Type")).hasValue("image/jpeg");
+        assertThat(contentResponse.headers().firstValue("X-Content-Type-Options")).hasValue("nosniff");
+        assertThat(contentResponse.body()).containsExactly(jpegContent);
+
+        assertThat(request(
+                "DELETE",
+                "/api/trips/" + tripId + "/stops/" + stopId + "/photos/" + jpeg.path("id").asText(),
+                null).statusCode()).isEqualTo(204);
+        assertThat(Files.exists(photoStorageRoot().resolve(jpegStorageKey))).isFalse();
+        JsonNode remainingPhotos = getTrip(tripId).path("stops").get(0).path("photos");
+        assertThat(remainingPhotos).hasSize(2);
+        assertThat(remainingPhotos.get(0).path("position").asInt()).isEqualTo(1);
+        assertThat(remainingPhotos.get(1).path("position").asInt()).isEqualTo(2);
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+        assertThat(Files.exists(photoStorageRoot().resolve(pngStorageKey))).isFalse();
+        assertThat(Files.exists(photoStorageRoot().resolve(webpStorageKey))).isFalse();
+    }
+
+    @Test
+    void validatesPhotoContentSizeAndOwnership() throws Exception {
+        String firstTripId = createTrip("Photo validation A " + UUID.randomUUID());
+        String secondTripId = createTrip("Photo validation B " + UUID.randomUUID());
+        String firstStopId = addStop(firstTripId, "Photo A " + UUID.randomUUID()).path("id").asText();
+        String secondStopId = addStop(secondTripId, "Photo B " + UUID.randomUUID()).path("id").asText();
+
+        assertProblem(uploadPhoto(firstTripId, firstStopId, "empty.jpg", "image/jpeg", new byte[0]), 400, "PHOTO_EMPTY");
+        assertProblem(
+                uploadPhoto(firstTripId, firstStopId, "notes.txt", "text/plain", "not an image".getBytes(StandardCharsets.UTF_8)),
+                415,
+                "PHOTO_UNSUPPORTED_TYPE");
+        assertProblem(
+                uploadPhoto(firstTripId, firstStopId, "fake.png", "image/png", bytes(0xff, 0xd8, 0xff)),
+                400,
+                "PHOTO_INVALID_CONTENT");
+        assertProblem(
+                uploadPhoto(
+                        firstTripId,
+                        firstStopId,
+                        "fake.webp",
+                        "image/webp",
+                        bytes('R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P')),
+                400,
+                "PHOTO_INVALID_CONTENT");
+
+        byte[] oversized = new byte[1025];
+        Arrays.fill(oversized, (byte) 1);
+        oversized[0] = (byte) 0xff;
+        oversized[1] = (byte) 0xd8;
+        oversized[2] = (byte) 0xff;
+        assertProblem(uploadPhoto(firstTripId, firstStopId, "large.jpg", "image/jpeg", oversized), 413, "PHOTO_TOO_LARGE");
+
+        assertProblem(
+                uploadPhoto(UUID.randomUUID().toString(), firstStopId, "photo.jpg", "image/jpeg", imageBytes("jpg")),
+                404,
+                "TRIP_NOT_FOUND");
+        assertProblem(
+                uploadPhoto(firstTripId, UUID.randomUUID().toString(), "photo.jpg", "image/jpeg", imageBytes("jpg")),
+                404,
+                "TRIP_STOP_NOT_FOUND");
+        assertProblem(
+                uploadPhoto(firstTripId, secondStopId, "photo.jpg", "image/jpeg", imageBytes("jpg")),
+                404,
+                "TRIP_STOP_NOT_FOUND");
+
+        assertThat(request("DELETE", "/api/trips/" + firstTripId, null).statusCode()).isEqualTo(204);
+        assertThat(request("DELETE", "/api/trips/" + secondTripId, null).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void deletingAStopRemovesItsStoredPhotos() throws Exception {
+        String tripId = createTrip("Stop photo cleanup " + UUID.randomUUID());
+        String stopId = addStop(tripId, "Cleanup city " + UUID.randomUUID()).path("id").asText();
+        JsonNode photo = json(uploadPhoto(
+                tripId, stopId, "cleanup.jpg", "image/jpeg", imageBytes("jpg")));
+        String storageKey = storageKey(photo.path("id").asText());
+        assertThat(Files.exists(photoStorageRoot().resolve(storageKey))).isTrue();
+
+        assertThat(request("DELETE", "/api/trips/" + tripId + "/stops/" + stopId, null).statusCode()).isEqualTo(204);
+
+        assertThat(Files.exists(photoStorageRoot().resolve(storageKey))).isFalse();
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
     private String createTrip(String name) throws Exception {
         HttpResponse<String> response = request("POST", "/api/trips", "{\"name\":\"" + name + "\"}");
         assertThat(response.statusCode()).isEqualTo(201);
@@ -269,6 +589,86 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         HttpResponse<String> response = request("GET", "/api/trips/" + tripId, null);
         assertThat(response.statusCode()).isEqualTo(200);
         return json(response);
+    }
+
+    private HttpResponse<String> uploadPhoto(
+            String tripId,
+            String stopId,
+            String filename,
+            String contentType,
+            byte[] content) throws Exception {
+        String boundary = "WanderMapBoundary" + UUID.randomUUID();
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        body.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\n")
+                .getBytes(StandardCharsets.UTF_8));
+        body.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        body.write(content);
+        body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder(URI.create(
+                        "http://localhost:" + port + "/api/trips/" + tripId + "/stops/" + stopId + "/photos"))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<byte[]> requestBytes(String method, String path) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .method(method, HttpRequest.BodyPublishers.noBody())
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+    }
+
+    private String storageKey(String photoId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT storage_key FROM trip_stop_photos WHERE id = ?",
+                String.class,
+                UUID.fromString(photoId));
+    }
+
+    private static byte[] bytes(int... values) {
+        byte[] result = new byte[values.length];
+        for (int index = 0; index < values.length; index++) {
+            result[index] = (byte) values[index];
+        }
+        return result;
+    }
+
+    private static byte[] webp(String chunkType, byte[] payload) {
+        byte[] content = new byte[20 + payload.length + (payload.length & 1)];
+        writeFourCc(content, 0, "RIFF");
+        writeUnsignedLittleEndianInt(content, 4, content.length - 8L);
+        writeFourCc(content, 8, "WEBP");
+        writeFourCc(content, 12, chunkType);
+        writeUnsignedLittleEndianInt(content, 16, payload.length);
+        System.arraycopy(payload, 0, content, 20, payload.length);
+        return content;
+    }
+
+    private static void writeFourCc(byte[] content, int offset, String value) {
+        byte[] encoded = value.getBytes(StandardCharsets.US_ASCII);
+        if (encoded.length != 4) {
+            throw new IllegalArgumentException("FourCC must contain four ASCII bytes");
+        }
+        System.arraycopy(encoded, 0, content, offset, encoded.length);
+    }
+
+    private static void writeUnsignedLittleEndianInt(byte[] content, int offset, long value) {
+        for (int index = 0; index < 4; index++) {
+            content[offset + index] = (byte) (value >>> (index * 8));
+        }
+    }
+
+    private static byte[] imageBytes(String format) {
+        try {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), format, output);
+            return output.toByteArray();
+        } catch (java.io.IOException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     private void assertStops(JsonNode trip, String... cityNames) {

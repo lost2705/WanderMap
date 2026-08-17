@@ -14,16 +14,25 @@ export function TripForm({ initialValue, submitLabel, isSubmitting, onSubmit, on
   const [name, setName] = useState(initialValue?.name ?? '')
   const [startDate, setStartDate] = useState(initialValue?.startDate ?? '')
   const [endDate, setEndDate] = useState(initialValue?.endDate ?? '')
+  const [description, setDescription] = useState(initialValue?.description ?? '')
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   useEffect(() => {
     setName(initialValue?.name ?? '')
     setStartDate(initialValue?.startDate ?? '')
     setEndDate(initialValue?.endDate ?? '')
+    setDescription(initialValue?.description ?? '')
+    setValidationError(null)
   }, [initialValue])
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await onSubmit({ name, startDate: startDate || null, endDate: endDate || null })
+    if (startDate && endDate && startDate > endDate) {
+      setValidationError('End date cannot be before start date.')
+      return
+    }
+    setValidationError(null)
+    await onSubmit({ name, startDate: startDate || null, endDate: endDate || null, description: description || null })
   }
 
   return (
@@ -35,13 +44,29 @@ export function TripForm({ initialValue, submitLabel, isSubmitting, onSubmit, on
       <div className="date-fields">
         <label>
           Start date
-          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          <input type="date" value={startDate} onChange={(event) => {
+            setStartDate(event.target.value)
+            setValidationError(null)
+          }} />
         </label>
         <label>
           End date
-          <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          <input type="date" value={endDate} onChange={(event) => {
+            setEndDate(event.target.value)
+            setValidationError(null)
+          }} />
         </label>
       </div>
+      <label>
+        Description
+        <textarea
+          placeholder="A few words about this trip"
+          rows={3}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+      </label>
+      {validationError ? <p className="form-error" role="alert">{validationError}</p> : null}
       <div className="form-actions">
         <button className="button button-primary" disabled={isSubmitting} type="submit">
           {isSubmitting ? 'Saving…' : submitLabel}
