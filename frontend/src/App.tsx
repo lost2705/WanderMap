@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { listCountries } from './api/countries'
 import { ApiError } from './api/client'
 import {
   addStop,
@@ -16,13 +15,12 @@ import { Itinerary } from './components/Itinerary'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
 import { MapView } from './features/map/MapView'
-import type { Country, Trip, TripDetailsInput, TripMapOverview, TripSummary } from './types/travel'
+import type { CitySearchResult, Trip, TripDetailsInput, TripMapOverview, TripSummary } from './types/travel'
 
 type TripFormMode = 'create' | 'edit' | null
 
 export default function App() {
   const [trips, setTrips] = useState<TripSummary[]>([])
-  const [countries, setCountries] = useState<Country[]>([])
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
@@ -30,6 +28,9 @@ export default function App() {
   const [isMutating, setIsMutating] = useState(false)
   const [formMode, setFormMode] = useState<TripFormMode>(null)
   const [error, setError] = useState<string | null>(null)
+  const activeSelectedTrip = selectedTripId !== null && selectedTrip?.id === selectedTripId
+    ? selectedTrip
+    : null
 
   useEffect(() => {
     void loadApplication()
@@ -62,9 +63,8 @@ export default function App() {
   async function loadApplication(preferredTripId?: string) {
     setIsLoading(true)
     try {
-      const [nextTrips, nextCountries, nextOverview] = await Promise.all([listTrips(), listCountries(), getMapOverview()])
+      const [nextTrips, nextOverview] = await Promise.all([listTrips(), getMapOverview()])
       setTrips(nextTrips)
-      setCountries(nextCountries)
       setOverview(nextOverview)
       setSelectedTripId((current) => {
         const candidate = preferredTripId ?? current
@@ -128,11 +128,16 @@ export default function App() {
     await loadApplication()
   }
 
-  async function handleAddStop(countryCode: string, cityName: string) {
+  async function handleAddStop(city: CitySearchResult) {
     if (!selectedTrip) {
       return
     }
-    await performMutation(() => addStop(selectedTrip.id, { countryCode, cityName }))
+    await performMutation(() => addStop(selectedTrip.id, {
+      countryCode: city.countryCode,
+      cityName: city.name,
+      latitude: city.latitude,
+      longitude: city.longitude,
+    }))
     await refreshSelectedTrip(selectedTrip.id)
   }
 
@@ -152,6 +157,14 @@ export default function App() {
     await refreshSelectedTrip(selectedTrip.id)
   }
 
+  function handleSelectTrip(tripId: string) {
+    const nextTripId = selectedTripId === tripId ? null : tripId
+    setError(null)
+    setFormMode(null)
+    setSelectedTrip(null)
+    setSelectedTripId(nextTripId)
+  }
+
   return (
     <main className="application-shell">
       <aside className="sidebar">
@@ -164,11 +177,7 @@ export default function App() {
           selectedTripId={selectedTripId}
           trips={trips}
           onCreate={() => setFormMode('create')}
-          onSelect={(tripId) => {
-            setError(null)
-            setFormMode(null)
-            setSelectedTripId(tripId)
-          }}
+          onSelect={handleSelectTrip}
         />
         {formMode === 'create' ? (
           <section className="editor-panel" aria-label="Create a trip">
@@ -182,12 +191,12 @@ export default function App() {
             />
           </section>
         ) : null}
-        {formMode === 'edit' && selectedTrip ? (
+        {formMode === 'edit' && activeSelectedTrip ? (
           <section className="editor-panel" aria-label="Edit selected trip">
             <p className="eyebrow">Trip details</p>
             <h2>Edit trip</h2>
             <TripForm
-              initialValue={selectedTrip}
+              initialValue={activeSelectedTrip}
               isSubmitting={isMutating}
               submitLabel="Save changes"
               onCancel={() => setFormMode(null)}
@@ -195,13 +204,12 @@ export default function App() {
             />
           </section>
         ) : null}
-        {!formMode && selectedTrip ? (
+        {!formMode && activeSelectedTrip ? (
           <>
             <Itinerary
-              key={selectedTrip.id}
-              countries={countries}
+              key={activeSelectedTrip.id}
               isMutating={isMutating}
-              trip={selectedTrip}
+              trip={activeSelectedTrip}
               onAddStop={handleAddStop}
               onDelete={handleDeleteStop}
               onMove={handleMoveStop}
@@ -216,6 +224,11 @@ export default function App() {
             </div>
           </>
         ) : null}
+        {!formMode && !isLoading && selectedTripId === null ? (
+          <section className="itinerary" aria-label="No selected trip">
+            <p className="empty-text">Select a trip to view its itinerary.</p>
+          </section>
+        ) : null}
       </aside>
       <div className="content-area">
         {error ? (
@@ -226,7 +239,7 @@ export default function App() {
             </button>
           </div>
         ) : null}
-        <MapView overview={overview} selectedTrip={selectedTrip} />
+        <MapView overview={overview} selectedTrip={activeSelectedTrip} />
       </div>
     </main>
   )

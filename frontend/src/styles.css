@@ -66,6 +66,22 @@ button:disabled { cursor: not-allowed; opacity: 0.58; }
 .add-stop-form, .trip-form { display: grid; gap: 0.65rem; }
 .add-stop-form { margin-top: 0.3rem; border-top: 1px solid #edf0eb; padding-top: 1rem; }
 .add-stop-form h3 { margin: 0; color: #36515e; font-size: 0.9rem; }
+.city-search { display: grid; gap: 0.45rem; }
+.city-search-control { position: relative; }
+.city-search-dropdown { position: absolute; z-index: 5; top: calc(100% + 0.25rem); width: 100%; overflow: hidden; border: 1px solid #d5ddd7; border-radius: 0.55rem; background: #fffefa; box-shadow: 0 8px 24px rgb(23 50 66 / 16%); }
+.city-search-dropdown p { margin: 0; padding: 0.7rem 0.75rem; color: #718089; font-size: 0.78rem; font-weight: 500; }
+.city-search-dropdown .city-search-error { color: #a44730; }
+.city-search-dropdown ul { margin: 0; padding: 0.25rem; list-style: none; }
+.city-search-dropdown button { display: grid; width: 100%; gap: 0.1rem; border: 0; border-radius: 0.4rem; padding: 0.55rem 0.6rem; background: transparent; color: #284653; text-align: left; }
+.city-search-dropdown button:hover, .city-search-dropdown button.is-active { background: #e5efe9; }
+.city-search-dropdown strong { font-size: 0.84rem; }
+.city-search-dropdown span { color: #718089; font-size: 0.73rem; }
+.selected-city { display: grid; grid-template-columns: 1fr auto; gap: 0.08rem 0.5rem; border: 1px solid #c7d6cc; border-radius: 0.5rem; padding: 0.55rem 0.65rem; background: #eef5f0; }
+.selected-city span { grid-column: 1 / -1; color: #718089; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.selected-city strong { color: #284653; font-size: 0.84rem; }
+.selected-city small { align-self: center; color: #718089; font-size: 0.72rem; }
+.geocoding-attribution { margin: 0; color: #819098; font-size: 0.64rem; line-height: 1.35; }
+.geocoding-attribution a { color: inherit; }
 label { display: grid; gap: 0.3rem; color: #49616b; font-size: 0.75rem; font-weight: 700; }
 input, select { width: 100%; min-height: 2.3rem; border: 1px solid #d5ddd7; border-radius: 0.48rem; padding: 0.48rem 0.55rem; background: #fffefa; color: #173242; }
 input:focus, select:focus { outline: 2px solid #e6a263; outline-offset: 1px; }

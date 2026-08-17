@@ -194,6 +194,27 @@ class TripServiceTest {
     }
 
     @Test
+    void persistsCoordinatesSuppliedByASelectedCityWithoutResolvingAgain() {
+        Trip trip = new Trip("Tuscany", null, null);
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
+        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "lucca")).thenReturn(Optional.empty());
+        when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(tripRepository.save(trip)).thenReturn(trip);
+
+        TripStop stop = tripService.addStop(
+                trip.getId(),
+                "IT",
+                "Lucca",
+                new java.math.BigDecimal("43.8429"),
+                new java.math.BigDecimal("10.5027"));
+
+        assertThat(stop.getCity().getLatitude()).isEqualByComparingTo("43.8429");
+        assertThat(stop.getCity().getLongitude()).isEqualByComparingTo("10.5027");
+        verify(cityLocationResolver, never()).resolve(any(), any());
+    }
+
+    @Test
     void doesNotResolveAnExistingCityThatAlreadyHasCoordinates() {
         Trip trip = new Trip("Italy", null, null);
         City rome = new City(

@@ -1,6 +1,7 @@
 package io.github.lost2705.wandermap.travel.api;
 
 import io.github.lost2705.wandermap.travel.application.CountryNotFoundException;
+import io.github.lost2705.wandermap.travel.application.GeocodingUnavailableException;
 import io.github.lost2705.wandermap.travel.application.TripNotFoundException;
 import io.github.lost2705.wandermap.travel.domain.TripStopNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -30,6 +31,15 @@ public class TravelExceptionHandler {
     @ExceptionHandler(TripStopNotFoundException.class)
     ProblemDetail handleTripStopNotFound(TripStopNotFoundException exception) {
         return problem(HttpStatus.NOT_FOUND, "Trip stop not found", exception.getMessage(), "TRIP_STOP_NOT_FOUND");
+    }
+
+    @ExceptionHandler(GeocodingUnavailableException.class)
+    ProblemDetail handleGeocodingUnavailable(GeocodingUnavailableException exception) {
+        return problem(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "City search unavailable",
+                exception.getMessage(),
+                "GEOCODING_UNAVAILABLE");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

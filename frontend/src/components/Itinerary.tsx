@@ -1,32 +1,34 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { Country, Trip } from '../types/travel'
-import { defaultCountryCodeForTrip } from './itineraryDefaults'
+import type { CitySearchResult, Trip } from '../types/travel'
+import { CitySearch } from './CitySearch'
+import type { SearchCitiesFunction } from './CitySearch'
 
 interface ItineraryProps {
   trip: Trip
-  countries: Country[]
   isMutating: boolean
+  citySearch?: SearchCitiesFunction
   onMove: (stopId: string, position: number) => Promise<void>
   onDelete: (stopId: string) => Promise<void>
-  onAddStop: (countryCode: string, cityName: string) => Promise<void>
+  onAddStop: (city: CitySearchResult) => Promise<void>
 }
 
-export function Itinerary({ trip, countries, isMutating, onMove, onDelete, onAddStop }: ItineraryProps) {
-  const [countryCode, setCountryCode] = useState(() => defaultCountryCodeForTrip(trip, countries))
-  const [cityName, setCityName] = useState('')
-  const hasUserSelectedCountry = useRef(false)
-
-  useEffect(() => {
-    if (!hasUserSelectedCountry.current && countryCode === '') {
-      setCountryCode(defaultCountryCodeForTrip(trip, countries))
-    }
-  }, [countries, countryCode, trip])
+export function Itinerary({ trip, isMutating, citySearch, onMove, onDelete, onAddStop }: ItineraryProps) {
+  const [cityQuery, setCityQuery] = useState('')
+  const [selectedCity, setSelectedCity] = useState<CitySearchResult | null>(null)
 
   async function handleAddStop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    await onAddStop(countryCode, cityName)
-    setCityName('')
+    if (!selectedCity) {
+      return
+    }
+    try {
+      await onAddStop(selectedCity)
+      setCityQuery('')
+      setSelectedCity(null)
+    } catch {
+      // App owns the visible mutation error; preserve the selection so the user can retry.
+    }
   }
 
   return (
@@ -81,35 +83,21 @@ export function Itinerary({ trip, countries, isMutating, onMove, onDelete, onAdd
       </ol>
       <form className="add-stop-form" onSubmit={(event) => void handleAddStop(event)}>
         <h3>Add a stop</h3>
-        <label>
-          Country
-          <select
-            required
-            value={countryCode}
-            onChange={(event) => {
-              hasUserSelectedCountry.current = true
-              setCountryCode(event.target.value)
-            }}
-          >
-            <option value="">Choose a country</option>
-            {countries.map((country) => (
-              <option key={country.code} value={country.code}>
-                {country.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          City
-          <input
-            required
-            maxLength={160}
-            placeholder="e.g. Rome"
-            value={cityName}
-            onChange={(event) => setCityName(event.target.value)}
-          />
-        </label>
-        <button className="button button-secondary" disabled={isMutating} type="submit">
+        <CitySearch
+          disabled={isMutating}
+          query={cityQuery}
+          search={citySearch}
+          selectedResult={selectedCity}
+          onQueryChange={(query) => {
+            setCityQuery(query)
+            setSelectedCity(null)
+          }}
+          onSelect={(result) => {
+            setCityQuery(result.name)
+            setSelectedCity(result)
+          }}
+        />
+        <button className="button button-secondary" disabled={isMutating || !selectedCity} type="submit">
           {isMutating ? 'Adding…' : 'Add stop'}
         </button>
       </form>

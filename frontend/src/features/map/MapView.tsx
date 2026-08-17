@@ -3,7 +3,7 @@ import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
 import type { Trip, TripMapOverview } from '../../types/travel'
 import {
-  countryCodesFromOverview,
+  countryCodesForMap,
   countryFeatureFilter,
   markersForMap,
   selectedTripCameraTarget,
@@ -46,7 +46,7 @@ export function MapView({ overview, selectedTrip }: MapViewProps) {
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
   const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
-  const visitedCountryCodes = countryCodesFromOverview(overview)
+  const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
   const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)

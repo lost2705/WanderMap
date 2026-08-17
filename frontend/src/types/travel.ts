@@ -48,6 +48,15 @@ export interface TripMapOverview {
   markers: TripMapMarker[]
 }
 
+export interface CitySearchResult {
+  name: string
+  countryName: string
+  regionName: string | null
+  countryCode: string
+  latitude: number
+  longitude: number
+}
+
 export interface TripDetailsInput {
   name: string
   startDate: string | null
@@ -57,4 +66,6 @@ export interface TripDetailsInput {
 export interface AddStopInput {
   countryCode: string
   cityName: string
+  latitude: number
+  longitude: number
 }

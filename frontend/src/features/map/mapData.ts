@@ -55,24 +55,33 @@ export type SelectedTripCameraTarget =
       coordinates: MapCoordinate[]
     }
 
-export function countryCodesFromOverview(
+export function countryCodesForMap(
   overview: TripMapOverview | null,
+  selectedTrip: Trip | null,
 ): string[] {
-  return overview
-    ? [
-        ...new Set(
-          overview.visitedCountryCodes,
-        ),
-      ].sort()
-    : []
+  const countryCodes = selectedTrip
+    ? selectedTrip.stops.map(
+        (stop) =>
+          stop.city.country.code,
+      )
+    : overview?.visitedCountryCodes ?? []
+
+  return [
+    ...new Set(countryCodes),
+  ].sort()
 }
 
 export function markersForMap(
   overview: TripMapOverview | null,
   selectedTripId: string | null,
 ): DisplayMarker[] {
-  return (overview?.markers ?? []).map(
-    (marker) => ({
+  return (overview?.markers ?? [])
+    .filter(
+      (marker) =>
+        selectedTripId === null ||
+        marker.tripId === selectedTripId,
+    )
+    .map((marker) => ({
       ...marker,
 
       coordinate: toMapCoordinate(
@@ -86,8 +95,7 @@ export function markersForMap(
 
       isSelectedTrip:
         marker.tripId === selectedTripId,
-    }),
-  )
+    }))
 }
 
 export function markersForTrip(

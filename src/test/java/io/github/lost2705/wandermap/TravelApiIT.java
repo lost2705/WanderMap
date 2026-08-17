@@ -178,6 +178,36 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(deleteResponse.statusCode()).isEqualTo(204);
     }
 
+    @Test
+    void persistsSelectedSearchCoordinatesForACityOutsideTheKnownCatalog() throws Exception {
+        String tripId = createTrip("Selected geocoder result " + UUID.randomUUID());
+        HttpResponse<String> addResponse = request(
+                "POST",
+                "/api/trips/" + tripId + "/stops",
+                """
+                {"countryCode":"IT","cityName":"Lucca","latitude":43.8429,"longitude":10.5027}
+                """);
+
+        assertThat(addResponse.statusCode()).isEqualTo(201);
+        JsonNode city = json(addResponse).path("city");
+        assertThat(city.path("name").asText()).isEqualTo("Lucca");
+        assertThat(city.path("country").path("code").asText()).isEqualTo("IT");
+        assertThat(city.path("latitude").asDouble()).isEqualTo(43.8429d);
+        assertThat(city.path("longitude").asDouble()).isEqualTo(10.5027d);
+
+        JsonNode overview = json(request("GET", "/api/trips/map-overview", null));
+        assertThat(overview.path("visitedCountryCodes")).anySatisfy(code ->
+                assertThat(code.asText()).isEqualTo("IT"));
+        assertThat(overview.path("markers")).anySatisfy(marker -> {
+            assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
+            assertThat(marker.path("cityName").asText()).isEqualTo("Lucca");
+            assertThat(marker.path("latitude").asDouble()).isEqualTo(43.8429d);
+            assertThat(marker.path("longitude").asDouble()).isEqualTo(10.5027d);
+        });
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
     private String createTrip(String name) throws Exception {
         HttpResponse<String> response = request("POST", "/api/trips", "{\"name\":\"" + name + "\"}");
         assertThat(response.statusCode()).isEqualTo(201);
