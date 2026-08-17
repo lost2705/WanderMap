@@ -14,7 +14,7 @@ class KnownCityLocationResolverTest {
                 .isPresent()
                 .get()
                 .extracting(location -> location.latitude().toPlainString(), location -> location.longitude().toPlainString())
-                .containsExactly("41.9028", "12.4964");
+                .containsExactly("41.902800", "12.496400");
     }
 
     @Test

@@ -31,6 +31,32 @@ class TravelDomainTest {
     }
 
     @Test
+    void normalizesCoordinatesToTheDatabaseIdentityPrecision() {
+        CityLocation location = new CityLocation(
+                new BigDecimal("34.7998125"), new BigDecimal("-87.6773125"));
+
+        assertThat(location.latitude()).isEqualByComparingTo("34.799813");
+        assertThat(location.longitude()).isEqualByComparingTo("-87.677313");
+    }
+
+    @Test
+    void doesNotAllowAnAssignedCityLocationToBeChanged() {
+        City city = new City(
+                ITALY,
+                "Florence",
+                new CityLocation(new BigDecimal("43.7696"), new BigDecimal("11.2558")));
+
+        city.applyLocation(new CityLocation(new BigDecimal("43.769600"), new BigDecimal("11.255800")));
+
+        assertThatThrownBy(() -> city.applyLocation(
+                        new CityLocation(new BigDecimal("34.7998"), new BigDecimal("-87.6773"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("city location cannot be changed once assigned");
+        assertThat(city.getLatitude()).isEqualByComparingTo("43.7696");
+        assertThat(city.getLongitude()).isEqualByComparingTo("11.2558");
+    }
+
+    @Test
     void rejectsInvalidTripDateRangeBeforePersistence() {
         assertThatIllegalArgumentException().isThrownBy(() ->
                 new Trip("Invalid dates", LocalDate.of(2026, 6, 2), LocalDate.of(2026, 6, 1)))

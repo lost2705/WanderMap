@@ -75,7 +75,12 @@ public class TripController {
     @PostMapping("/{tripId}/stops")
     public ResponseEntity<TripStopResponse> addStop(@PathVariable UUID tripId, @Valid @RequestBody AddTripStopRequest request) {
         TripStopResponse response = TravelApiMapper.toResponse(
-                tripService.addStop(tripId, request.countryCode(), request.cityName()));
+                tripService.addStop(
+                        tripId,
+                        request.countryCode(),
+                        request.cityName(),
+                        request.latitude(),
+                        request.longitude()));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{stopId}")
                 .buildAndExpand(response.id())

@@ -178,6 +178,62 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(deleteResponse.statusCode()).isEqualTo(204);
     }
 
+    @Test
+    void persistsSelectedSearchCoordinatesForACityOutsideTheKnownCatalog() throws Exception {
+        String tripId = createTrip("Selected geocoder result " + UUID.randomUUID());
+        HttpResponse<String> addResponse = request(
+                "POST",
+                "/api/trips/" + tripId + "/stops",
+                """
+                {"countryCode":"IT","cityName":"Lucca","latitude":43.8429,"longitude":10.5027}
+                """);
+
+        assertThat(addResponse.statusCode()).isEqualTo(201);
+        JsonNode city = json(addResponse).path("city");
+        assertThat(city.path("name").asText()).isEqualTo("Lucca");
+        assertThat(city.path("country").path("code").asText()).isEqualTo("IT");
+        assertThat(city.path("latitude").asDouble()).isEqualTo(43.8429d);
+        assertThat(city.path("longitude").asDouble()).isEqualTo(10.5027d);
+
+        JsonNode overview = json(request("GET", "/api/trips/map-overview", null));
+        assertThat(overview.path("visitedCountryCodes")).anySatisfy(code ->
+                assertThat(code.asText()).isEqualTo("IT"));
+        assertThat(overview.path("markers")).anySatisfy(marker -> {
+            assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
+            assertThat(marker.path("cityName").asText()).isEqualTo("Lucca");
+            assertThat(marker.path("latitude").asDouble()).isEqualTo(43.8429d);
+            assertThat(marker.path("longitude").asDouble()).isEqualTo(10.5027d);
+        });
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void keepsSameNameGeocodingSelectionsAtDifferentLocationsDistinct() throws Exception {
+        String tripId = createTrip("Two Florences " + UUID.randomUUID());
+
+        JsonNode alabamaStop = addStopWithLocation(tripId, "US", "Florence", 34.7998125, -87.6773125);
+        JsonNode southCarolinaStop = addStopWithLocation(tripId, "US", "Florence", 34.1954, -79.7626);
+        JsonNode alabamaAgainStop = addStopWithLocation(tripId, "US", "  FLORENCE  ", 34.7998125, -87.6773125);
+
+        String alabamaCityId = alabamaStop.path("city").path("id").asText();
+        String southCarolinaCityId = southCarolinaStop.path("city").path("id").asText();
+        assertThat(southCarolinaCityId).isNotEqualTo(alabamaCityId);
+        assertThat(alabamaAgainStop.path("city").path("id").asText()).isEqualTo(alabamaCityId);
+
+        JsonNode persistedStops = getTrip(tripId).path("stops");
+        assertThat(persistedStops).hasSize(3);
+        assertThat(persistedStops.get(0).path("city").path("id").asText()).isEqualTo(alabamaCityId);
+        assertThat(persistedStops.get(0).path("city").path("latitude").asDouble()).isEqualTo(34.799813d);
+        assertThat(persistedStops.get(0).path("city").path("longitude").asDouble()).isEqualTo(-87.677313d);
+        assertThat(persistedStops.get(1).path("city").path("id").asText()).isEqualTo(southCarolinaCityId);
+        assertThat(persistedStops.get(1).path("city").path("latitude").asDouble()).isEqualTo(34.1954d);
+        assertThat(persistedStops.get(1).path("city").path("longitude").asDouble()).isEqualTo(-79.7626d);
+        assertThat(persistedStops.get(2).path("city").path("id").asText()).isEqualTo(alabamaCityId);
+
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
     private String createTrip(String name) throws Exception {
         HttpResponse<String> response = request("POST", "/api/trips", "{\"name\":\"" + name + "\"}");
         assertThat(response.statusCode()).isEqualTo(201);
@@ -193,6 +249,18 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
                 "POST",
                 "/api/trips/" + tripId + "/stops",
                 "{\"countryCode\":\"" + countryCode + "\",\"cityName\":\"" + cityName + "\"}");
+        assertThat(response.statusCode()).isEqualTo(201);
+        return json(response);
+    }
+
+    private JsonNode addStopWithLocation(
+            String tripId, String countryCode, String cityName, double latitude, double longitude) throws Exception {
+        HttpResponse<String> response = request(
+                "POST",
+                "/api/trips/" + tripId + "/stops",
+                """
+                {"countryCode":"%s","cityName":"%s","latitude":%s,"longitude":%s}
+                """.formatted(countryCode, cityName, latitude, longitude));
         assertThat(response.statusCode()).isEqualTo(201);
         return json(response);
     }

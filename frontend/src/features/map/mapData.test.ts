@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   COUNTRY_ISO_ALPHA2_PROPERTY,
-  countryCodesFromOverview,
+  countryCodesForMap,
   countryFeatureFilter,
   markersForMap,
   markersForTrip,
@@ -22,23 +22,47 @@ const overview: TripMapOverview = {
       longitude: 12.4964,
       country: { code: 'IT', name: 'Italy' },
     },
+    {
+      tripId: 'japan',
+      stopId: 'tokyo',
+      position: 1,
+      cityName: 'Tokyo',
+      latitude: 35.6762,
+      longitude: 139.6503,
+      country: { code: 'JP', name: 'Japan' },
+    },
   ],
 }
 
 describe('map data', () => {
-  it('normalizes no, one, multiple, and duplicate visited country codes', () => {
-    expect(countryCodesFromOverview(null)).toEqual([])
-    expect(countryCodesFromOverview({ ...overview, visitedCountryCodes: ['IT'] })).toEqual(['IT'])
-    expect(countryCodesFromOverview({ ...overview, visitedCountryCodes: ['TH', 'IT'] })).toEqual(['IT', 'TH'])
-    expect(countryCodesFromOverview(overview)).toEqual(['FR', 'IT'])
+  it('uses all global visited countries when no trip is selected', () => {
+    expect(countryCodesForMap(null, null)).toEqual([])
+    expect(countryCodesForMap(overview, null)).toEqual(['FR', 'IT'])
   })
 
-  it('marks markers that belong to the selected trip', () => {
-    const marker = markersForMap(overview, 'italy')[0]
+  it('uses only the selected single-country trip countries', () => {
+    expect(countryCodesForMap(overview, tripWithCountries('japan', 'JP', 'JP'))).toEqual(['JP'])
+  })
+
+  it('uses unique countries from every selected multi-country trip stop', () => {
+    expect(countryCodesForMap(overview, tripWithCountries('italy', 'IT', 'US', 'RU', 'IT')))
+      .toEqual(['IT', 'RU', 'US'])
+  })
+
+  it('shows only selected-trip markers', () => {
+    const markers = markersForMap(overview, 'italy')
+    expect(markers).toHaveLength(1)
+    const marker = markers[0]
     expect(marker?.isSelectedTrip).toBe(true)
     expect(marker?.markerLabel).toBe('1')
     expect(marker?.coordinate).toEqual([12.4964, 41.9028])
-    expect(markersForMap(overview, 'another-trip')[0]?.isSelectedTrip).toBe(false)
+    expect(markersForMap(overview, 'another-trip')).toEqual([])
+  })
+
+  it('shows all markers when no trip is selected', () => {
+    const markers = markersForMap(overview, null)
+    expect(markers.map((marker) => marker.tripId)).toEqual(['italy', 'japan'])
+    expect(markers.every((marker) => !marker.isSelectedTrip)).toBe(true)
   })
 
   it('only creates focus markers for itinerary stops with coordinates', () => {
@@ -138,3 +162,23 @@ describe('map data', () => {
     expect(selectedTripCameraTarget(unresolvedTrip)).toEqual({ kind: 'none' })
   })
 })
+
+function tripWithCountries(id: string, ...countryCodes: string[]): Trip {
+  return {
+    id,
+    name: id,
+    startDate: null,
+    endDate: null,
+    stops: countryCodes.map((countryCode, index) => ({
+      id: `${id}-stop-${index}`,
+      position: index + 1,
+      city: {
+        id: `${id}-city-${index}`,
+        name: `City ${index}`,
+        latitude: null,
+        longitude: null,
+        country: { code: countryCode, name: countryCode },
+      },
+    })),
+  }
+}

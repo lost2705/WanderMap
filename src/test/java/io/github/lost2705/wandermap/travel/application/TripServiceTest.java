@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,8 +19,11 @@ import io.github.lost2705.wandermap.travel.domain.TripStopNotFoundException;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class TripServiceTest {
 
     private static final Country ITALY = new Country("IT", "Italy");
+    private static final Country UNITED_STATES = new Country("US", "United States");
 
     @Mock
     private TripRepository tripRepository;
@@ -146,7 +151,7 @@ class TripServiceTest {
         City rome = new City(ITALY, "Rome");
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "rome")).thenReturn(Optional.of(rome));
+        when(cityRepository.findByIdentity("IT", "rome", null, null)).thenReturn(Optional.of(rome));
         when(tripRepository.save(trip)).thenReturn(trip);
 
         TripStop stop = tripService.addStop(trip.getId(), "IT", "  Rome  ");
@@ -162,7 +167,7 @@ class TripServiceTest {
         Trip trip = new Trip("Italy", null, null);
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "florence")).thenReturn(Optional.empty());
+        when(cityRepository.findByIdentity("IT", "florence", null, null)).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tripRepository.save(trip)).thenReturn(trip);
 
@@ -178,11 +183,13 @@ class TripServiceTest {
     @Test
     void appliesAnOptionalLocationWhenCreatingAMissingCity() {
         Trip trip = new Trip("Italy", null, null);
-        CityLocation location = new CityLocation(new java.math.BigDecimal("43.7696"), new java.math.BigDecimal("11.2558"));
+        CityLocation location = new CityLocation(new BigDecimal("43.7696"), new BigDecimal("11.2558"));
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "florence")).thenReturn(Optional.empty());
         when(cityLocationResolver.resolve("IT", "florence")).thenReturn(Optional.of(location));
+        when(cityRepository.findByIdentity("IT", "florence", location.latitude(), location.longitude()))
+                .thenReturn(Optional.empty());
+        when(cityRepository.findByIdentity("IT", "florence", null, null)).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tripRepository.save(trip)).thenReturn(trip);
 
@@ -194,20 +201,113 @@ class TripServiceTest {
     }
 
     @Test
-    void doesNotResolveAnExistingCityThatAlreadyHasCoordinates() {
+    void persistsCoordinatesSuppliedByASelectedCityWithoutResolvingAgain() {
+        Trip trip = new Trip("Tuscany", null, null);
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
+        when(cityRepository.findByIdentity(
+                        "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
+                .thenReturn(Optional.empty());
+        when(cityRepository.findByIdentity("IT", "lucca", null, null)).thenReturn(Optional.empty());
+        when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(tripRepository.save(trip)).thenReturn(trip);
+
+        TripStop stop = tripService.addStop(
+                trip.getId(),
+                "IT",
+                "Lucca",
+                new BigDecimal("43.8429"),
+                new BigDecimal("10.5027"));
+
+        assertThat(stop.getCity().getLatitude()).isEqualByComparingTo("43.8429");
+        assertThat(stop.getCity().getLongitude()).isEqualByComparingTo("10.5027");
+        verify(cityLocationResolver, never()).resolve(any(), any());
+    }
+
+    @Test
+    void keepsSameNameSelectedCitiesAtDifferentCoordinatesDistinctAndReusesExactSelections() {
+        Trip trip = new Trip("Two Florences", null, null);
+        Map<String, City> storedCities = new HashMap<>();
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(countryRepository.findById("US")).thenReturn(Optional.of(UNITED_STATES));
+        when(cityRepository.findByIdentity(
+                        eq("US"), eq("florence"), nullable(BigDecimal.class), nullable(BigDecimal.class)))
+                .thenAnswer(invocation -> Optional.ofNullable(storedCities.get(cityIdentityKey(
+                        invocation.getArgument(0),
+                        invocation.getArgument(1),
+                        invocation.getArgument(2),
+                        invocation.getArgument(3)))));
+        when(cityRepository.save(any(City.class))).thenAnswer(invocation -> {
+            City city = invocation.getArgument(0);
+            storedCities.put(cityIdentityKey(
+                    city.getCountry().getCode(),
+                    city.getNormalizedName(),
+                    city.getLatitude(),
+                    city.getLongitude()), city);
+            return city;
+        });
+        when(tripRepository.save(trip)).thenReturn(trip);
+
+        TripStop alabama = tripService.addStop(
+                trip.getId(), "US", "Florence", new BigDecimal("34.7998125"), new BigDecimal("-87.6773125"));
+        TripStop southCarolina = tripService.addStop(
+                trip.getId(), "US", "Florence", new BigDecimal("34.1954"), new BigDecimal("-79.7626"));
+        TripStop alabamaAgain = tripService.addStop(
+                trip.getId(), "US", "  FLORENCE  ", new BigDecimal("34.7998125"), new BigDecimal("-87.6773125"));
+
+        assertThat(alabama.getCity()).isNotSameAs(southCarolina.getCity());
+        assertThat(alabamaAgain.getCity()).isSameAs(alabama.getCity());
+        assertThat(alabama.getCity().getLatitude()).isEqualByComparingTo("34.799813");
+        assertThat(alabama.getCity().getLongitude()).isEqualByComparingTo("-87.677313");
+        assertThat(southCarolina.getCity().getLatitude()).isEqualByComparingTo("34.1954");
+        assertThat(southCarolina.getCity().getLongitude()).isEqualByComparingTo("-79.7626");
+        assertThat(trip.getStops()).extracting(TripStop::getCity)
+                .containsExactly(alabama.getCity(), southCarolina.getCity(), alabama.getCity());
+        verify(cityRepository, org.mockito.Mockito.times(2)).save(any(City.class));
+        verify(cityLocationResolver, never()).resolve(any(), any());
+    }
+
+    @Test
+    void enrichesAnExistingUnlocatedCityWithSelectedCoordinates() {
+        Trip trip = new Trip("Tuscany", null, null);
+        City lucca = new City(ITALY, "Lucca");
+        BigDecimal latitude = new BigDecimal("43.8429");
+        BigDecimal longitude = new BigDecimal("10.5027");
+        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
+        when(cityRepository.findByIdentity(
+                        "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
+                .thenReturn(Optional.empty());
+        when(cityRepository.findByIdentity("IT", "lucca", null, null)).thenReturn(Optional.of(lucca));
+        when(tripRepository.save(trip)).thenReturn(trip);
+
+        TripStop stop = tripService.addStop(trip.getId(), "IT", "Lucca", latitude, longitude);
+
+        assertThat(stop.getCity()).isSameAs(lucca);
+        assertThat(lucca.getLatitude()).isEqualByComparingTo(latitude);
+        assertThat(lucca.getLongitude()).isEqualByComparingTo(longitude);
+        verify(cityRepository, never()).save(any(City.class));
+    }
+
+    @Test
+    void coordinateLessRequestReusesAnExistingCityAtTheResolvedLegacyLocation() {
         Trip trip = new Trip("Italy", null, null);
+        CityLocation location = new CityLocation(new BigDecimal("41.9028"), new BigDecimal("12.4964"));
         City rome = new City(
                 ITALY,
                 "Rome",
-                new CityLocation(new java.math.BigDecimal("41.9028"), new java.math.BigDecimal("12.4964")));
+                location);
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "rome")).thenReturn(Optional.of(rome));
+        when(cityLocationResolver.resolve("IT", "rome")).thenReturn(Optional.of(location));
+        when(cityRepository.findByIdentity("IT", "rome", location.latitude(), location.longitude()))
+                .thenReturn(Optional.of(rome));
         when(tripRepository.save(trip)).thenReturn(trip);
 
-        tripService.addStop(trip.getId(), "IT", "Rome");
+        TripStop stop = tripService.addStop(trip.getId(), "IT", "Rome");
 
-        verify(cityLocationResolver, never()).resolve(any(), any());
+        assertThat(stop.getCity()).isSameAs(rome);
+        verify(cityRepository, never()).save(any(City.class));
     }
 
     @Test
@@ -215,8 +315,8 @@ class TripServiceTest {
         Trip trip = new Trip("Italy", null, null);
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName("IT", "unknown place")).thenReturn(Optional.empty());
         when(cityLocationResolver.resolve("IT", "unknown place")).thenThrow(new IllegalStateException("unavailable"));
+        when(cityRepository.findByIdentity("IT", "unknown place", null, null)).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tripRepository.save(trip)).thenReturn(trip);
 
@@ -235,7 +335,7 @@ class TripServiceTest {
         assertThatThrownBy(() -> tripService.addStop(trip.getId(), "FR", "Paris"))
                 .isInstanceOf(CountryNotFoundException.class)
                 .hasMessage("country not found: FR");
-        verify(cityRepository, never()).findByCountry_CodeAndNormalizedName(any(), any());
+        verify(cityRepository, never()).findByIdentity(any(), any(), any(), any());
         verify(tripRepository, never()).save(trip);
     }
 
@@ -245,7 +345,7 @@ class TripServiceTest {
         City rome = new City(ITALY, "Rome");
         when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
-        when(cityRepository.findByCountry_CodeAndNormalizedName(eq("IT"), eq("rome"))).thenReturn(Optional.of(rome));
+        when(cityRepository.findByIdentity("IT", "rome", null, null)).thenReturn(Optional.of(rome));
         when(tripRepository.save(trip)).thenReturn(trip);
 
         tripService.addStop(trip.getId(), "IT", "Rome");
@@ -298,5 +398,10 @@ class TripServiceTest {
             trip.addStop(new City(ITALY, cityName));
         }
         return trip;
+    }
+
+    private static String cityIdentityKey(
+            String countryCode, String normalizedName, BigDecimal latitude, BigDecimal longitude) {
+        return countryCode + "|" + normalizedName + "|" + latitude + "|" + longitude;
     }
 }
