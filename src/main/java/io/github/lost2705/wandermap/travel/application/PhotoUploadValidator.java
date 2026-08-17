@@ -17,6 +17,9 @@ public class PhotoUploadValidator {
 
     private static final Set<String> SUPPORTED_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final long MAXIMUM_DECODED_PIXELS = 25_000_000;
+    private static final int RIFF_HEADER_SIZE = 12;
+    private static final int WEBP_CHUNK_HEADER_SIZE = 8;
+    private static final int MINIMUM_WEBP_SIZE = RIFF_HEADER_SIZE + WEBP_CHUNK_HEADER_SIZE;
 
     private final long maximumSize;
 
@@ -106,8 +109,7 @@ public class PhotoUploadValidator {
 
     private static boolean canDecode(String contentType, byte[] content) {
         if (contentType.equals("image/webp")) {
-            // The JDK has no built-in WebP codec; V1 still validates its RIFF/WEBP container signature.
-            return true;
+            return isStructurallyValidWebp(content);
         }
         try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(content))) {
             if (input == null) {
@@ -132,6 +134,66 @@ public class PhotoUploadValidator {
         } catch (IOException | RuntimeException exception) {
             return false;
         }
+    }
+
+    private static boolean isStructurallyValidWebp(byte[] content) {
+        if (content.length < MINIMUM_WEBP_SIZE
+                || !hasFourCc(content, 0, "RIFF")
+                || !hasFourCc(content, 8, "WEBP")) {
+            return false;
+        }
+
+        long declaredRiffSize = readUnsignedLittleEndianInt(content, 4);
+        long containerEnd = declaredRiffSize + 8L;
+        if (containerEnd != content.length) {
+            return false;
+        }
+
+        long chunkOffset = RIFF_HEADER_SIZE;
+        boolean hasImageChunk = false;
+        while (chunkOffset < containerEnd) {
+            if (containerEnd - chunkOffset < WEBP_CHUNK_HEADER_SIZE) {
+                return false;
+            }
+
+            int chunkHeaderOffset = (int) chunkOffset;
+            long chunkSize = readUnsignedLittleEndianInt(content, chunkHeaderOffset + 4);
+            long chunkDataOffset = chunkOffset + WEBP_CHUNK_HEADER_SIZE;
+            if (chunkSize > containerEnd - chunkDataOffset) {
+                return false;
+            }
+
+            long chunkEnd = chunkDataOffset + chunkSize;
+            long paddingSize = chunkSize & 1L;
+            if (paddingSize > containerEnd - chunkEnd) {
+                return false;
+            }
+
+            hasImageChunk |= hasFourCc(content, chunkHeaderOffset, "VP8 ")
+                    || hasFourCc(content, chunkHeaderOffset, "VP8L")
+                    || hasFourCc(content, chunkHeaderOffset, "VP8X");
+            chunkOffset = chunkEnd + paddingSize;
+        }
+        return hasImageChunk;
+    }
+
+    private static boolean hasFourCc(byte[] content, int offset, String expected) {
+        if (offset < 0 || content.length - offset < expected.length()) {
+            return false;
+        }
+        for (int index = 0; index < expected.length(); index++) {
+            if (Byte.toUnsignedInt(content[offset + index]) != expected.charAt(index)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static long readUnsignedLittleEndianInt(byte[] content, int offset) {
+        return Byte.toUnsignedLong(content[offset])
+                | (Byte.toUnsignedLong(content[offset + 1]) << 8)
+                | (Byte.toUnsignedLong(content[offset + 2]) << 16)
+                | (Byte.toUnsignedLong(content[offset + 3]) << 24);
     }
 
     public record ValidatedPhoto(String originalFilename, String contentType, byte[] content) {

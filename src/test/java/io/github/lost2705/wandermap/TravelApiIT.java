@@ -438,7 +438,7 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
                 stopId,
                 "third.webp",
                 "image/webp",
-                bytes(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50));
+                webp("VP8 ", bytes(1, 2, 3, 4)));
 
         assertThat(jpegResponse.statusCode()).isEqualTo(201);
         assertThat(pngResponse.statusCode()).isEqualTo(201);
@@ -503,6 +503,15 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
                 "PHOTO_UNSUPPORTED_TYPE");
         assertProblem(
                 uploadPhoto(firstTripId, firstStopId, "fake.png", "image/png", bytes(0xff, 0xd8, 0xff)),
+                400,
+                "PHOTO_INVALID_CONTENT");
+        assertProblem(
+                uploadPhoto(
+                        firstTripId,
+                        firstStopId,
+                        "fake.webp",
+                        "image/webp",
+                        bytes('R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'E', 'B', 'P')),
                 400,
                 "PHOTO_INVALID_CONTENT");
 
@@ -625,6 +634,31 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
             result[index] = (byte) values[index];
         }
         return result;
+    }
+
+    private static byte[] webp(String chunkType, byte[] payload) {
+        byte[] content = new byte[20 + payload.length + (payload.length & 1)];
+        writeFourCc(content, 0, "RIFF");
+        writeUnsignedLittleEndianInt(content, 4, content.length - 8L);
+        writeFourCc(content, 8, "WEBP");
+        writeFourCc(content, 12, chunkType);
+        writeUnsignedLittleEndianInt(content, 16, payload.length);
+        System.arraycopy(payload, 0, content, 20, payload.length);
+        return content;
+    }
+
+    private static void writeFourCc(byte[] content, int offset, String value) {
+        byte[] encoded = value.getBytes(StandardCharsets.US_ASCII);
+        if (encoded.length != 4) {
+            throw new IllegalArgumentException("FourCC must contain four ASCII bytes");
+        }
+        System.arraycopy(encoded, 0, content, offset, encoded.length);
+    }
+
+    private static void writeUnsignedLittleEndianInt(byte[] content, int offset, long value) {
+        for (int index = 0; index < 4; index++) {
+            content[offset + index] = (byte) (value >>> (index * 8));
+        }
     }
 
     private static byte[] imageBytes(String format) {
