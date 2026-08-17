@@ -12,6 +12,7 @@ import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -122,17 +123,50 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void enforcesUniqueNormalizedCityNameWithinCountry() {
+    void persistsSameNameCitiesAtDifferentLocationsAndRejectsAnExactDuplicateIdentity() {
+        Country unitedStates = countryRepository.getReferenceById("US");
+        String cityName = "Florence persistence " + UUID.randomUUID();
+        City alabama = cityRepository.saveAndFlush(new City(
+                unitedStates,
+                cityName,
+                new CityLocation(new BigDecimal("34.7998"), new BigDecimal("-87.6773"))));
+        City southCarolina = cityRepository.saveAndFlush(new City(
+                unitedStates,
+                cityName,
+                new CityLocation(new BigDecimal("34.1954"), new BigDecimal("-79.7626"))));
+        entityManager.clear();
+
+        assertThat(cityRepository.findByIdentity(
+                        "US", City.normalizeName(cityName), new BigDecimal("34.7998"), new BigDecimal("-87.6773")))
+                .get()
+                .extracting(City::getId)
+                .isEqualTo(alabama.getId());
+        assertThat(cityRepository.findByIdentity(
+                        "US", City.normalizeName(cityName), new BigDecimal("34.1954"), new BigDecimal("-79.7626")))
+                .get()
+                .extracting(City::getId)
+                .isEqualTo(southCarolina.getId());
+
+        assertThatThrownBy(() -> cityRepository.saveAndFlush(new City(
+                        unitedStates,
+                        "  " + cityName + "  ",
+                        new CityLocation(new BigDecimal("34.7998"), new BigDecimal("-87.6773")))))
+                .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+                .hasMessageContaining("uq_cities_country_name_coordinates");
+    }
+
+    @Test
+    void permitsOnlyOneUnlocatedIdentityForEachNormalizedNameAndCountry() {
         Country italy = countryRepository.getReferenceById("IT");
-        String cityName = "Milan " + UUID.randomUUID();
+        String cityName = "Unlocated " + UUID.randomUUID();
         City firstCity = cityRepository.saveAndFlush(new City(italy, cityName));
 
-        assertThat(cityRepository.findByCountry_CodeAndNormalizedName("IT", City.normalizeName(cityName)))
+        assertThat(cityRepository.findByIdentity("IT", City.normalizeName(cityName), null, null))
                 .contains(firstCity);
 
         assertThatThrownBy(() -> cityRepository.saveAndFlush(new City(italy, "  " + cityName + "  ")))
                 .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
-                .hasMessageContaining("uq_cities_country_normalized_name");
+                .hasMessageContaining("uq_cities_country_name_unlocated");
     }
 
     @Test

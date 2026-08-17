@@ -13,6 +13,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -114,36 +115,46 @@ public class TripService {
         Country country = countryRepository.findById(normalizedCountryCode)
                 .orElseThrow(() -> new CountryNotFoundException(normalizedCountryCode));
         String normalizedName = City.normalizeName(cityName);
+        CityLocation location = selectedLocation != null
+                ? selectedLocation
+                : resolveLegacyLocation(country, normalizedName, cityName);
 
-        return cityRepository.findByCountry_CodeAndNormalizedName(country.getCode(), normalizedName)
-                .map(city -> enrichLocationIfMissing(city, selectedLocation))
-                .orElseGet(() -> {
-                    City city = new City(country, cityName, selectedLocation);
-                    enrichLocationIfMissing(city, selectedLocation);
-                    return cityRepository.save(city);
+        return findByIdentity(country, normalizedName, location)
+                .or(() -> findAndEnrichUnlocatedCity(country, normalizedName, location))
+                .orElseGet(() -> cityRepository.save(new City(country, cityName, location)));
+    }
+
+    private Optional<City> findByIdentity(Country country, String normalizedName, CityLocation location) {
+        if (location == null) {
+            return cityRepository.findByIdentity(country.getCode(), normalizedName, null, null);
+        }
+        return cityRepository.findByIdentity(
+                country.getCode(), normalizedName, location.latitude(), location.longitude());
+    }
+
+    private Optional<City> findAndEnrichUnlocatedCity(
+            Country country, String normalizedName, CityLocation location) {
+        if (location == null) {
+            return Optional.empty();
+        }
+        return cityRepository.findByIdentity(country.getCode(), normalizedName, null, null)
+                .map(city -> {
+                    city.applyLocation(location);
+                    return city;
                 });
     }
 
-    private City enrichLocationIfMissing(City city, CityLocation selectedLocation) {
-        if (city.hasLocation()) {
-            return city;
-        }
-
-        if (selectedLocation != null) {
-            city.applyLocation(selectedLocation);
-            return city;
-        }
-
+    private CityLocation resolveLegacyLocation(Country country, String normalizedName, String cityName) {
         try {
-            cityLocationResolver.resolve(city.getCountry().getCode(), city.getNormalizedName()).ifPresent(city::applyLocation);
+            return cityLocationResolver.resolve(country.getCode(), normalizedName).orElse(null);
         } catch (RuntimeException exception) {
             LOGGER.warn(
                     "Could not resolve a map location for city {} in {}: {}",
-                    city.getName(),
-                    city.getCountry().getCode(),
+                    cityName.strip(),
+                    country.getCode(),
                     exception.getMessage());
+            return null;
         }
-        return city;
     }
 
     private static CityLocation locationFrom(BigDecimal latitude, BigDecimal longitude) {
