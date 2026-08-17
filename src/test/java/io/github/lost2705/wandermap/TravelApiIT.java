@@ -79,6 +79,7 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
                 assertThat(code.asText()).isEqualTo("IT"));
         assertThat(overview.path("markers")).anySatisfy(marker -> {
             assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
+            assertThat(marker.path("cityId").asText()).isEqualTo(florenceStop.path("city").path("id").asText());
             assertThat(marker.path("cityName").asText()).isEqualTo("Florence");
             assertThat(marker.path("position").asInt()).isEqualTo(2);
             assertThat(marker.path("latitude").asDouble()).isEqualTo(43.7696d);
@@ -379,6 +380,7 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
                 assertThat(code.asText()).isEqualTo("IT"));
         assertThat(overview.path("markers")).anySatisfy(marker -> {
             assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
+            assertThat(marker.path("cityId").asText()).isEqualTo(city.path("id").asText());
             assertThat(marker.path("cityName").asText()).isEqualTo("Lucca");
             assertThat(marker.path("latitude").asDouble()).isEqualTo(43.8429d);
             assertThat(marker.path("longitude").asDouble()).isEqualTo(10.5027d);
@@ -411,6 +413,37 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(persistedStops.get(2).path("city").path("id").asText()).isEqualTo(alabamaCityId);
 
         assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void mapOverviewKeepsOneStableCityIdentityAcrossMultipleTrips() throws Exception {
+        String firstTripId = createTrip("Shared city A " + UUID.randomUUID());
+        String secondTripId = createTrip("Shared city B " + UUID.randomUUID());
+        String cityName = "Shared Rome " + UUID.randomUUID();
+        JsonNode firstStop = addStopWithLocation(firstTripId, "IT", cityName, 41.9028, 12.4964);
+        JsonNode secondStop = addStopWithLocation(secondTripId, "IT", cityName, 41.9028, 12.4964);
+        String cityId = firstStop.path("city").path("id").asText();
+
+        assertThat(secondStop.path("city").path("id").asText()).isEqualTo(cityId);
+
+        JsonNode overview = json(request("GET", "/api/trips/map-overview", null));
+        List<JsonNode> sharedCityMarkers = new ArrayList<>();
+        for (JsonNode marker : overview.path("markers")) {
+            if (marker.path("tripId").asText().equals(firstTripId)
+                    || marker.path("tripId").asText().equals(secondTripId)) {
+                sharedCityMarkers.add(marker);
+            }
+        }
+        assertThat(sharedCityMarkers).hasSize(2).allSatisfy(marker -> {
+            assertThat(marker.path("cityId").asText()).isEqualTo(cityId);
+            assertThat(marker.path("cityName").asText()).isEqualTo(cityName);
+            assertThat(marker.path("latitude").asDouble()).isEqualTo(41.9028d);
+            assertThat(marker.path("longitude").asDouble()).isEqualTo(12.4964d);
+            assertThat(marker.path("country").path("code").asText()).isEqualTo("IT");
+        });
+
+        assertThat(request("DELETE", "/api/trips/" + firstTripId, null).statusCode()).isEqualTo(204);
+        assertThat(request("DELETE", "/api/trips/" + secondTripId, null).statusCode()).isEqualTo(204);
     }
 
     @Test

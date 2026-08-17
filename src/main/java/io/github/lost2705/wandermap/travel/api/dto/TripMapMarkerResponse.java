@@ -7,6 +7,7 @@ import java.util.UUID;
 public record TripMapMarkerResponse(
         UUID tripId,
         UUID stopId,
+        UUID cityId,
         int position,
         String cityName,
         BigDecimal latitude,

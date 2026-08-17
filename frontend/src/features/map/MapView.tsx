@@ -59,6 +59,7 @@ export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
   const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
+  const displayMarkers = markersForMap(overview, selectedTrip?.id ?? null)
   const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip))
   const routeDataKey = JSON.stringify(routeData)
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
@@ -192,18 +193,17 @@ export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
 
     markerRefs.current.forEach(({ marker }) => marker.remove())
     const tripNames = new Map(trips.map((trip) => [trip.id, trip.name]))
-    const markers = markersForMap(overview, selectedTrip?.id ?? null)
+    const markers = displayMarkers
       .map((data): MapMarkerReference => ({
         data,
-        marker: createMarker(data, tripNames.get(data.tripId)).addTo(map),
+        marker: createMarker(data, tripNames).addTo(map),
       }))
     const updateMarkerOffsets = () => {
       const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
         const point = map.project(data.coordinate)
         return {
-          tripId: data.tripId,
-          stopId: data.stopId,
-          position: data.position,
+          markerKey: data.markerKey,
+          collisionOrder: data.collisionOrder,
           screenCoordinate: [point.x, point.y],
         }
       }))
@@ -258,7 +258,9 @@ export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
           <p className="eyebrow">A visual travel journal</p>
           <h1>See where your stories take you.</h1>
         </div>
-        <p>{visitedCountryCodes.length} countries visited</p>
+        <p>{selectedTrip
+          ? `${visitedCountryCodes.length} countries visited`
+          : `${displayMarkers.length} places visited`}</p>
       </div>
       <div className="map-canvas" ref={mapElementRef} />
       <svg aria-hidden="true" className="country-overlay">
@@ -356,16 +358,18 @@ function isCountryGeometry(geometry: unknown): geometry is CountryGeometry {
     && Array.isArray((geometry as { coordinates?: unknown }).coordinates)
 }
 
-function createMarker(marker: ReturnType<typeof markersForMap>[number], tripName: string | undefined): Marker {
+function createMarker(
+  marker: ReturnType<typeof markersForMap>[number],
+  tripNames: Map<string, string>,
+): Marker {
   const element = document.createElement('button')
-  element.className = `map-marker${marker.isSelectedTrip ? ' is-selected' : ''}`
+  element.className = marker.mode === 'global-place'
+    ? 'map-marker is-place'
+    : 'map-marker is-itinerary is-selected'
   element.type = 'button'
   element.style.setProperty('--trip-color', marker.color)
-  element.setAttribute(
-    'aria-label',
-    `${marker.cityName}, ${marker.country.name}${tripName ? ` — ${tripName}` : ''}`,
-  )
-  element.textContent = marker.markerLabel
+  element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
+  element.textContent = marker.markerLabel ?? ''
 
   const popupContent = document.createElement('div')
   const city = document.createElement('strong')
@@ -373,15 +377,57 @@ function createMarker(marker: ReturnType<typeof markersForMap>[number], tripName
   const country = document.createElement('span')
   country.textContent = marker.country.name
   popupContent.append(city, country)
-  if (tripName) {
-    const trip = document.createElement('span')
-    trip.textContent = `Trip: ${tripName}`
-    popupContent.append(trip)
+
+  if (marker.mode === 'selected-itinerary') {
+    const visit = marker.visits[0]
+    const tripName = visit ? tripNames.get(visit.tripId) : undefined
+    if (tripName) {
+      popupContent.append(popupLine(`Trip: ${tripName}`))
+    }
+    if (visit) {
+      popupContent.append(popupLine(`Stop ${visit.position}`))
+    }
+  } else {
+    if (marker.visits.length > 1) {
+      popupContent.append(popupLine(`${marker.visits.length} visits`))
+    }
+    popupContent.append(popupLine('Visited in:'))
+    for (const tripName of uniqueTripNames(marker.visits, tripNames)) {
+      popupContent.append(popupLine(tripName))
+    }
   }
 
   return new Marker({ element, anchor: 'center', offset: marker.pixelOffset })
     .setLngLat(marker.coordinate)
     .setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
+}
+
+function markerAriaLabel(
+  marker: ReturnType<typeof markersForMap>[number],
+  tripNames: Map<string, string>,
+): string {
+  const place = `${marker.cityName}, ${marker.country.name}`
+  if (marker.mode === 'selected-itinerary') {
+    const visit = marker.visits[0]
+    const tripName = visit ? tripNames.get(visit.tripId) : undefined
+    return `${place}${tripName ? ` — ${tripName}` : ''}${visit ? `, stop ${visit.position}` : ''}`
+  }
+
+  const names = uniqueTripNames(marker.visits, tripNames)
+  return `${place} — visited in ${names.join(', ')}`
+}
+
+function uniqueTripNames(
+  visits: ReturnType<typeof markersForMap>[number]['visits'],
+  tripNames: Map<string, string>,
+): string[] {
+  return [...new Set(visits.map((visit) => tripNames.get(visit.tripId) ?? visit.tripId))]
+}
+
+function popupLine(text: string): HTMLSpanElement {
+  const line = document.createElement('span')
+  line.textContent = text
+  return line
 }
 
 function updateWorldViewport(map: maplibregl.Map, moveCamera: boolean) {

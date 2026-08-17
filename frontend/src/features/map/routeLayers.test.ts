@@ -50,18 +50,20 @@ describe('trip route layers', () => {
     expect(fakeMap.removeSource).toHaveBeenCalledTimes(1)
   })
 
-  it('updates the existing source across global and selected route transitions', () => {
+  it('clears global routes across global, Italy, Japan, and global transitions', () => {
     ensureTripRouteLayers(fakeMap)
     const globalData = routeFeatureCollection(routesForMap(overview, null))
-    const selectedData = routeFeatureCollection(routesForMap(overview, japanTrip))
+    const italyData = routeFeatureCollection(routesForMap(overview, italyTrip))
+    const japanData = routeFeatureCollection(routesForMap(overview, japanTrip))
 
     updateTripRouteData(fakeMap, globalData)
-    updateTripRouteData(fakeMap, selectedData)
+    updateTripRouteData(fakeMap, italyData)
+    updateTripRouteData(fakeMap, japanData)
     updateTripRouteData(fakeMap, globalData)
 
-    expect(sourceSetData).toHaveBeenCalledTimes(3)
-    expect(sourceSetData.mock.calls.map(([data]) => data.features.length)).toEqual([2, 1, 2])
-    expect(sourceSetData.mock.calls[1]?.[0].features[0]?.geometry.coordinates).toEqual([
+    expect(sourceSetData).toHaveBeenCalledTimes(4)
+    expect(sourceSetData.mock.calls.map(([data]) => data.features.length)).toEqual([0, 1, 1, 0])
+    expect(sourceSetData.mock.calls[2]?.[0].features[0]?.geometry.coordinates).toEqual([
       [139.6503, 35.6762],
       [135.7681, 35.0116],
     ])
@@ -80,6 +82,18 @@ const overview: TripMapOverview = {
   ],
 }
 
+const italyTrip: Trip = {
+  id: 'italy',
+  name: 'Italy',
+  startDate: null,
+  endDate: null,
+  description: null,
+  stops: [
+    stop('rome', 1, 41.9028, 12.4964, 'IT'),
+    stop('florence', 2, 43.7696, 11.2558, 'IT'),
+  ],
+}
+
 const japanTrip: Trip = {
   id: 'japan',
   name: 'Japan',
@@ -87,8 +101,8 @@ const japanTrip: Trip = {
   endDate: null,
   description: null,
   stops: [
-    stop('tokyo', 1, 35.6762, 139.6503),
-    stop('kyoto', 2, 35.0116, 135.7681),
+    stop('tokyo', 1, 35.6762, 139.6503, 'JP'),
+    stop('kyoto', 2, 35.0116, 135.7681, 'JP'),
   ],
 }
 
@@ -103,6 +117,7 @@ function marker(
   return {
     tripId,
     stopId,
+    cityId: `city-${stopId}`,
     position,
     cityName: stopId,
     latitude,
@@ -111,7 +126,7 @@ function marker(
   }
 }
 
-function stop(id: string, position: number, latitude: number, longitude: number) {
+function stop(id: string, position: number, latitude: number, longitude: number, countryCode: string) {
   return {
     id,
     position,
@@ -123,7 +138,7 @@ function stop(id: string, position: number, latitude: number, longitude: number)
       name: id,
       latitude,
       longitude,
-      country: { code: 'JP', name: 'Japan' },
+      country: { code: countryCode, name: countryCode },
     },
   }
 }

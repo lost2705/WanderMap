@@ -1,4 +1,5 @@
 import type {
+  Country,
   Trip,
   TripMapMarker,
   TripMapOverview,
@@ -37,19 +38,29 @@ export type CountryFeatureFilter =
       '',
     ]
 
-export interface DisplayMarker
-  extends TripMapMarker {
-  coordinate: MapCoordinate
-  color: string
-  markerLabel: string
-  pixelOffset: MapPixelOffset
-  isSelectedTrip: boolean
-}
-
-export interface ProjectedMarker {
+export interface PlaceVisit {
   tripId: string
   stopId: string
   position: number
+}
+
+export interface DisplayMarker {
+  markerKey: string
+  mode: 'global-place' | 'selected-itinerary'
+  cityId: string
+  cityName: string
+  country: Country
+  visits: PlaceVisit[]
+  coordinate: MapCoordinate
+  color: string
+  markerLabel: string | null
+  collisionOrder: number
+  pixelOffset: MapPixelOffset
+}
+
+export interface ProjectedMarker {
+  markerKey: string
+  collisionOrder: number
   screenCoordinate: MapPixelOffset
 }
 
@@ -108,7 +119,6 @@ const TRIP_COLORS = [
   '#4d6673',
 ] as const
 
-const GLOBAL_ROUTE_SEPARATION = 3
 export const MARKER_MINIMUM_SPACING = 38
 
 export type SelectedTripCameraTarget =
@@ -128,18 +138,15 @@ export type SelectedTripCameraTarget =
     }
 
 export function countryCodesForMap(
-  overview: TripMapOverview | null,
+  _overview: TripMapOverview | null,
   selectedTrip: Trip | null,
 ): string[] {
-  const countryCodes = selectedTrip
-    ? selectedTrip.stops.map(
-        (stop) =>
-          stop.city.country.code,
-      )
-    : overview?.visitedCountryCodes ?? []
+  if (!selectedTrip) {
+    return []
+  }
 
   return [
-    ...new Set(countryCodes),
+    ...new Set(selectedTrip.stops.map((stop) => stop.city.country.code)),
   ].sort()
 }
 
@@ -147,35 +154,69 @@ export function markersForMap(
   overview: TripMapOverview | null,
   selectedTripId: string | null,
 ): DisplayMarker[] {
-  return (overview?.markers ?? [])
-    .filter(
-      (marker) =>
-        selectedTripId === null ||
-        marker.tripId === selectedTripId,
-    )
-    .map((marker): DisplayMarker => ({
-      ...marker,
+  return selectedTripId === null
+    ? placesForGlobalMap(overview)
+    : markersForSelectedTrip(overview, selectedTripId)
+}
 
-      coordinate: toMapCoordinate(
-        marker.latitude,
-        marker.longitude,
-      ),
+export function placesForGlobalMap(overview: TripMapOverview | null): DisplayMarker[] {
+  const places = new Map<string, DisplayMarker>()
+  const markers = [...(overview?.markers ?? [])].sort(comparePlaceSourceMarkers)
 
+  for (const marker of markers) {
+    const visit: PlaceVisit = {
+      tripId: marker.tripId,
+      stopId: marker.stopId,
+      position: marker.position,
+    }
+    const existingPlace = places.get(marker.cityId)
+    if (existingPlace) {
+      existingPlace.visits.push(visit)
+      continue
+    }
+
+    places.set(marker.cityId, {
+      markerKey: `place:${marker.cityId}`,
+      mode: 'global-place',
+      cityId: marker.cityId,
+      cityName: marker.cityName,
+      country: marker.country,
+      visits: [visit],
+      coordinate: toMapCoordinate(marker.latitude, marker.longitude),
       color: tripVisualIdentity(marker.tripId).color,
-
-      markerLabel: String(
-        marker.position,
-      ),
-
+      markerLabel: null,
+      collisionOrder: 0,
       pixelOffset: [0, 0],
+    })
+  }
 
-      isSelectedTrip:
-        marker.tripId === selectedTripId,
+  return [...places.values()]
+}
+
+export function markersForSelectedTrip(
+  overview: TripMapOverview | null,
+  selectedTripId: string,
+): DisplayMarker[] {
+  return (overview?.markers ?? [])
+    .filter((marker) => marker.tripId === selectedTripId)
+    .sort((first, second) => first.position - second.position || first.stopId.localeCompare(second.stopId))
+    .map((marker): DisplayMarker => ({
+      markerKey: `itinerary:${marker.tripId}:${marker.stopId}`,
+      mode: 'selected-itinerary',
+      cityId: marker.cityId,
+      cityName: marker.cityName,
+      country: marker.country,
+      visits: [{ tripId: marker.tripId, stopId: marker.stopId, position: marker.position }],
+      coordinate: toMapCoordinate(marker.latitude, marker.longitude),
+      color: tripVisualIdentity(marker.tripId).color,
+      markerLabel: String(marker.position),
+      collisionOrder: marker.position,
+      pixelOffset: [0, 0],
     }))
 }
 
-export function markerScreenKey(marker: Pick<ProjectedMarker, 'tripId' | 'stopId'>): string {
-  return `${marker.tripId}:${marker.stopId}`
+export function markerScreenKey(marker: Pick<ProjectedMarker, 'markerKey'>): string {
+  return marker.markerKey
 }
 
 /**
@@ -228,47 +269,28 @@ export function markerOffsetsForScreenCollisions(
  * changes the order of the stops that can be drawn.
  */
 export function routesForMap(
-  overview: TripMapOverview | null,
+  _overview: TripMapOverview | null,
   selectedTrip: Trip | null,
 ): TripRoute[] {
-  if (selectedTrip) {
-    const route = routeForStops(
-      selectedTrip.id,
-      selectedTrip.stops.map((stop) => ({
-        stopId: stop.id,
-        position: stop.position,
-        latitude: stop.city.latitude,
-        longitude: stop.city.longitude,
-      })),
-      true,
-    )
-    return route ? [route] : []
+  return routesForSelectedTrip(selectedTrip)
+}
+
+export function routesForSelectedTrip(selectedTrip: Trip | null): TripRoute[] {
+  if (!selectedTrip) {
+    return []
   }
 
-  const stopsByTrip = new Map<string, RouteStop[]>()
-  for (const marker of overview?.markers ?? []) {
-    const stops = stopsByTrip.get(marker.tripId) ?? []
-    stops.push({
-      stopId: marker.stopId,
-      position: marker.position,
-      latitude: marker.latitude,
-      longitude: marker.longitude,
-    })
-    stopsByTrip.set(marker.tripId, stops)
-  }
-
-  const routes = [...stopsByTrip.entries()]
-    .sort(([firstTripId], [secondTripId]) => firstTripId.localeCompare(secondTripId))
-    .flatMap(([tripId, stops]) => {
-      const route = routeForStops(tripId, stops, false)
-      return route ? [route] : []
-    })
-  const centerIndex = (routes.length - 1) / 2
-
-  return routes.map((route, index) => ({
-    ...route,
-    lineOffset: (index - centerIndex) * GLOBAL_ROUTE_SEPARATION,
-  }))
+  const route = routeForStops(
+    selectedTrip.id,
+    selectedTrip.stops.map((stop) => ({
+      stopId: stop.id,
+      position: stop.position,
+      latitude: stop.city.latitude,
+      longitude: stop.city.longitude,
+    })),
+    true,
+  )
+  return route ? [route] : []
 }
 
 export function routeFeatureCollection(routes: TripRoute[]): TripRouteFeatureCollection {
@@ -317,6 +339,7 @@ export function markersForTrip(
     .map((stop) => ({
       tripId: trip?.id ?? '',
       stopId: stop.id,
+      cityId: stop.city.id,
       position: stop.position,
       cityName: stop.city.name,
 
@@ -453,7 +476,13 @@ function compareRouteStops(first: RouteStop, second: RouteStop): number {
 }
 
 function compareProjectedMarkers(first: ProjectedMarker, second: ProjectedMarker): number {
-  return first.tripId.localeCompare(second.tripId)
+  return first.collisionOrder - second.collisionOrder
+    || first.markerKey.localeCompare(second.markerKey)
+}
+
+function comparePlaceSourceMarkers(first: TripMapMarker, second: TripMapMarker): number {
+  return first.cityId.localeCompare(second.cityId)
+    || first.tripId.localeCompare(second.tripId)
     || first.position - second.position
     || first.stopId.localeCompare(second.stopId)
 }

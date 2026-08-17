@@ -96,6 +96,7 @@ final class TravelApiMapper {
         return new TripMapMarkerResponse(
                 trip.getId(),
                 stop.getId(),
+                city.getId(),
                 stop.getPosition(),
                 city.getName(),
                 city.getLatitude(),

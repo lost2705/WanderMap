@@ -117,8 +117,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #e6a263; outline-
 .map-caption > p { margin: 0 0 0.2rem; color: #4f686e; font-size: 0.76rem; font-weight: 750; white-space: nowrap; }
 .map-error, .map-hint { position: absolute; z-index: 1; right: 1.5rem; bottom: 1.5rem; max-width: 19rem; border-radius: 0.55rem; padding: 0.65rem 0.8rem; background: rgb(255 253 248 / 92%); box-shadow: 0 4px 15px rgb(19 50 66 / 14%); color: #4e646e; font-size: 0.78rem; }
 .map-error { color: #a44730; }
-.map-marker { display: grid; width: 1.9rem; height: 1.9rem; place-items: center; appearance: none; border: 2px solid #fffdf8; border-radius: 50%; padding: 0; background: var(--trip-color, #d96c35); box-shadow: 0 2px 8px rgb(49 35 21 / 40%); color: #fffdf8; font-size: 0.72rem; font-weight: 800; line-height: 1; }
-.map-marker.is-selected { width: 2.15rem; height: 2.15rem; background: #173242; box-shadow: 0 2px 10px rgb(18 50 66 / 55%); }
+.map-marker { display: grid; place-items: center; appearance: none; border-radius: 50%; padding: 0; cursor: pointer; }
+.map-marker.is-place { width: 1.05rem; height: 1.05rem; border: 3px solid #fffdf8; background: var(--trip-color, #d96c35); box-shadow: 0 0 0 4px rgb(255 253 248 / 62%), 0 0 0 7px rgb(23 50 66 / 18%), 0 3px 9px rgb(23 50 66 / 46%); }
+.map-marker.is-itinerary { width: 1.9rem; height: 1.9rem; border: 2px solid #fffdf8; background: var(--trip-color, #d96c35); box-shadow: 0 2px 8px rgb(49 35 21 / 40%); color: #fffdf8; font-size: 0.72rem; font-weight: 800; line-height: 1; }
+.map-marker.is-itinerary.is-selected { width: 2.15rem; height: 2.15rem; background: #173242; box-shadow: 0 2px 10px rgb(18 50 66 / 55%); }
 .maplibregl-popup-content { display: grid; gap: 0.15rem; padding: 0.7rem 0.8rem; color: #294653; font-family: Inter, Avenir, Helvetica, Arial, sans-serif; }
 .maplibregl-popup-content span { color: #718089; font-size: 0.76rem; }
 
