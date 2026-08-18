@@ -21,6 +21,7 @@ import type { Trip, TripMapOverview } from '../../types/travel'
 
 const overview: TripMapOverview = {
   visitedCountryCodes: ['IT', 'FR', 'IT'],
+  memoryCount: 0,
   markers: [
     {
       tripId: 'italy',
@@ -184,6 +185,7 @@ describe('map data', () => {
   it('keeps distinct City IDs separate even at identical coordinates', () => {
     const distinctPlaces = placesForGlobalMap({
       visitedCountryCodes: ['IT'],
+      memoryCount: 0,
       markers: [
         routeMarker('italy', 'nearby-a', 1, 'Nearby A', 43.7, 11.2, 'IT', 'Italy', 'city-a'),
         routeMarker('japan', 'nearby-b', 1, 'Nearby B', 43.7, 11.2, 'IT', 'Italy', 'city-b'),
@@ -489,6 +491,7 @@ function tripWithRouteStops(id: string, ...stops: RouteStopFixture[]): Trip {
 function routeOverview(sharedCity = false): TripMapOverview {
   return {
     visitedCountryCodes: ['IT', 'JP'],
+    memoryCount: 0,
     markers: [
       routeMarker('italy', 'florence', 2, 'Florence', 43.7696, 11.2558, 'IT', 'Italy'),
       routeMarker('italy', 'rome-italy', 1, 'Rome', 41.9028, 12.4964, 'IT', 'Italy', 'city-rome'),

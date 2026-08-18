@@ -87,7 +87,7 @@ describe('PlaceDetailsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
-    fireEvent.click(screen.getAllByRole('button', { name: 'View trip →' })[1]!)
+    fireEvent.click(screen.getAllByRole('button', { name: 'View journey →' })[1]!)
 
     expect(onClose).toHaveBeenCalledOnce()
     expect(onViewTrip).toHaveBeenCalledWith('legacy')

@@ -12,6 +12,7 @@ import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
+import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,6 +36,9 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
 
     @Autowired
     private TripRepository tripRepository;
+
+    @Autowired
+    private TripStopRepository tripStopRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -159,6 +163,26 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 "SELECT COUNT(*) FROM trip_stop_photos WHERE trip_stop_id = ?",
                 Integer.class,
                 stop.getId())).isEqualTo(2);
+    }
+
+    @Test
+    void countsEachStopWithANoteOrPhotosAsOneMemory() {
+        long initialMemoryCount = tripStopRepository.countStopsWithMemoryContent();
+        City city = persistCity("Memory count city " + UUID.randomUUID());
+        Trip trip = new Trip("Memory count journey", null, null);
+        trip.addStop(
+                city,
+                LocalDate.of(2026, 4, 1),
+                LocalDate.of(2026, 4, 2),
+                null);
+        trip.addStop(city, null, null, "A meaningful note.");
+        trip.addStop(city).addPhoto("memory/photo-only", "photo.jpg", "image/jpeg", 101);
+        trip.addStop(city, null, null, "A note with photos.")
+                .addPhoto("memory/note-and-photo", "both.jpg", "image/jpeg", 202);
+
+        tripRepository.saveAndFlush(trip);
+
+        assertThat(tripStopRepository.countStopsWithMemoryContent()).isEqualTo(initialMemoryCount + 3);
     }
 
     @Test

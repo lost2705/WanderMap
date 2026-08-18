@@ -169,12 +169,16 @@ describe('Itinerary journal', () => {
     renderItinerary(vi.fn(), vi.fn(), vi.fn(), journalTrip)
 
     expect(screen.getByText('Apr 1, 2026 – Apr 12, 2026')).toBeTruthy()
+    expect(screen.getByText('12 days')).toBeTruthy()
+    expect(screen.getByText('2 places')).toBeTruthy()
     expect(screen.getByText('Cherry blossoms, trains, and quiet mornings.')).toBeTruthy()
     expect(screen.getByText('Apr 2, 2026 – Apr 5, 2026')).toBeTruthy()
     expect(screen.getByText('Cherry blossoms in Ueno Park.')).toBeTruthy()
     expect(screen.getByText('Kyoto').closest('.stop-item')?.querySelector('.stop-date-range')).toBeNull()
     expect(screen.getByText('Kyoto').closest('.stop-item')?.querySelector('.stop-note')).toBeNull()
     expect(screen.queryByLabelText('Arrival')).toBeNull()
+    expect(screen.getByLabelText('Stop 1').textContent).toBe('01')
+    expect(screen.getByLabelText('Stop 2').textContent).toBe('02')
   })
 
   it('renders photo thumbnails in deterministic position order', () => {

@@ -38,6 +38,7 @@ export function Itinerary({
   const [photoMutation, setPhotoMutation] = useState<{ stopId: string; action: 'upload' | 'delete' } | null>(null)
 
   const tripDateRange = formatCalendarDateRange(trip.startDate, trip.endDate)
+  const tripDuration = tripDurationLabel(trip.startDate, trip.endDate)
 
   async function handleAddStop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -111,14 +112,18 @@ export function Itinerary({
 
   return (
     <section className="itinerary" aria-labelledby="itinerary-heading">
-      <div className="section-heading">
+      <header className="journey-summary">
         <div>
-          <p className="eyebrow">Selected trip</p>
+          <p className="eyebrow">Journey</p>
           <h2 id="itinerary-heading">{trip.name}</h2>
-          {tripDateRange ? <p className="trip-date-range">{tripDateRange}</p> : null}
+          <div className="journey-summary-meta">
+            {tripDateRange ? <span className="trip-date-range">{tripDateRange}</span> : null}
+            {tripDuration ? <span>{tripDuration}</span> : null}
+            <span>{trip.stops.length} {trip.stops.length === 1 ? 'place' : 'places'}</span>
+          </div>
           {trip.description ? <p className="trip-description">{trip.description}</p> : null}
         </div>
-      </div>
+      </header>
       {trip.stops.length === 0 ? <p className="empty-text">Add your first stop to build an itinerary.</p> : null}
       <ol className="stop-list">
         {trip.stops.map((stop, index) => {
@@ -126,7 +131,9 @@ export function Itinerary({
           const isEditing = editingStopId === stop.id
           return (
             <li className={`stop-item${isEditing ? ' is-editing' : ''}`} key={stop.id}>
-              <span className="stop-position">{stop.position}</span>
+              <span aria-label={`Stop ${stop.position}`} className="stop-position">
+                {String(stop.position).padStart(2, '0')}
+              </span>
               <div className="stop-details">
                 <strong>{stop.city.name}</strong>
                 <span>{stop.city.country.name}</span>
@@ -301,4 +308,17 @@ function validateJournalDates(trip: Trip, arrivalDate: string, departureDate: st
     return 'Departure date cannot be after trip end date.'
   }
   return null
+}
+
+function tripDurationLabel(startDate: string | null, endDate: string | null): string | null {
+  if (!startDate || !endDate) {
+    return null
+  }
+  const start = Date.parse(`${startDate}T00:00:00Z`)
+  const end = Date.parse(`${endDate}T00:00:00Z`)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null
+  }
+  const days = Math.floor((end - start) / 86_400_000) + 1
+  return `${days} ${days === 1 ? 'day' : 'days'}`
 }

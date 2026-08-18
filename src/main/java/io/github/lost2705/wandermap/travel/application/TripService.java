@@ -8,6 +8,7 @@ import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
+import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -28,6 +29,7 @@ public class TripService {
     private final TripRepository tripRepository;
     private final CountryRepository countryRepository;
     private final CityRepository cityRepository;
+    private final TripStopRepository tripStopRepository;
     private final CityLocationResolver cityLocationResolver;
     private final PhotoFileLifecycle photoFileLifecycle;
 
@@ -35,11 +37,13 @@ public class TripService {
             TripRepository tripRepository,
             CountryRepository countryRepository,
             CityRepository cityRepository,
+            TripStopRepository tripStopRepository,
             CityLocationResolver cityLocationResolver,
             PhotoFileLifecycle photoFileLifecycle) {
         this.tripRepository = tripRepository;
         this.countryRepository = countryRepository;
         this.cityRepository = cityRepository;
+        this.tripStopRepository = tripStopRepository;
         this.cityLocationResolver = cityLocationResolver;
         this.photoFileLifecycle = photoFileLifecycle;
     }
@@ -65,8 +69,10 @@ public class TripService {
     }
 
     @Transactional(readOnly = true)
-    public List<Trip> listTripsForMapOverview() {
-        return tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc();
+    public TripMapOverview getMapOverview() {
+        return new TripMapOverview(
+                tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc(),
+                tripStopRepository.countStopsWithMemoryContent());
     }
 
     @Transactional

@@ -74,6 +74,7 @@ describe('trip route layers', () => {
 
 const overview: TripMapOverview = {
   visitedCountryCodes: ['IT', 'JP'],
+  memoryCount: 0,
   markers: [
     marker('italy', 'rome', 1, 41.9028, 12.4964, 'IT'),
     marker('italy', 'florence', 2, 43.7696, 11.2558, 'IT'),

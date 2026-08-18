@@ -77,6 +77,7 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         JsonNode overview = json(overviewResponse);
         assertThat(overview.path("visitedCountryCodes")).anySatisfy(code ->
                 assertThat(code.asText()).isEqualTo("IT"));
+        assertThat(overview.path("memoryCount").isIntegralNumber()).isTrue();
         assertThat(overview.path("markers")).anySatisfy(marker -> {
             assertThat(marker.path("tripId").asText()).isEqualTo(tripId);
             assertThat(marker.path("cityId").asText()).isEqualTo(florenceStop.path("city").path("id").asText());
@@ -129,6 +130,27 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(deleteResponse.statusCode()).isEqualTo(204);
 
         assertProblem(request("GET", "/api/trips/" + tripId, null), 404, "TRIP_NOT_FOUND");
+    }
+
+    @Test
+    void exposesTheAggregateMemoryCountWithoutChangingExistingOverviewFields() throws Exception {
+        JsonNode initialOverview = json(request("GET", "/api/trips/map-overview", null));
+        long initialMemoryCount = initialOverview.path("memoryCount").asLong();
+        String tripId = createTrip("Overview memories " + UUID.randomUUID());
+        HttpResponse<String> stopResponse = request(
+                "POST",
+                "/api/trips/" + tripId + "/stops",
+                """
+                {"countryCode":"IT","cityName":"Memory note %s","note":"An evening to remember."}
+                """.formatted(UUID.randomUUID()));
+        assertThat(stopResponse.statusCode()).isEqualTo(201);
+
+        JsonNode overview = json(request("GET", "/api/trips/map-overview", null));
+
+        assertThat(overview.path("memoryCount").asLong()).isEqualTo(initialMemoryCount + 1);
+        assertThat(overview.path("visitedCountryCodes").isArray()).isTrue();
+        assertThat(overview.path("markers").isArray()).isTrue();
+        assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
     }
 
     @Test

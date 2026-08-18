@@ -38,7 +38,7 @@ export function TripForm({ initialValue, submitLabel, isSubmitting, onSubmit, on
   return (
     <form className="trip-form" onSubmit={(event) => void handleSubmit(event)}>
       <label>
-        Trip name
+        Journey name
         <input autoFocus required maxLength={200} value={name} onChange={(event) => setName(event.target.value)} />
       </label>
       <div className="date-fields">
@@ -60,7 +60,7 @@ export function TripForm({ initialValue, submitLabel, isSubmitting, onSubmit, on
       <label>
         Description
         <textarea
-          placeholder="A few words about this trip"
+          placeholder="A few words about this journey"
           rows={3}
           value={description}
           onChange={(event) => setDescription(event.target.value)}

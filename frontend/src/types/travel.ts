@@ -63,6 +63,7 @@ export interface TripMapMarker {
 export interface TripMapOverview {
   visitedCountryCodes: string[]
   markers: TripMapMarker[]
+  memoryCount: number
 }
 
 export interface PlaceDetails {
