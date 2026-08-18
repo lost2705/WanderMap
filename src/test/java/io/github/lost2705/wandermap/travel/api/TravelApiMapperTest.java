@@ -3,6 +3,8 @@ package io.github.lost2705.wandermap.travel.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
+import io.github.lost2705.wandermap.travel.api.dto.PlaceDetailsResponse;
+import io.github.lost2705.wandermap.travel.application.PlaceDetails;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
@@ -56,6 +58,49 @@ class TravelApiMapperTest {
             assertThat(marker.latitude()).isEqualByComparingTo("41.9028");
             assertThat(marker.longitude()).isEqualByComparingTo("12.4964");
             assertThat(marker.country().code()).isEqualTo("IT");
+        });
+    }
+
+    @Test
+    void mapsPlaceVisitsWithJournalAndSafeOrderedPhotoMetadata() {
+        Country italy = new Country("IT", "Italy");
+        City rome = new City(
+                italy,
+                "Rome",
+                new CityLocation(new BigDecimal("41.9028"), new BigDecimal("12.4964")));
+        Trip trip = new Trip(
+                "Italy 2026",
+                java.time.LocalDate.of(2026, 5, 1),
+                java.time.LocalDate.of(2026, 5, 12),
+                "A spring journey");
+        var stop = trip.addStop(
+                rome,
+                java.time.LocalDate.of(2026, 5, 3),
+                java.time.LocalDate.of(2026, 5, 5),
+                "Evening walks through Trastevere.");
+        var firstPhoto = stop.addPhoto("private/first", "first.jpg", "image/jpeg", 101);
+        var secondPhoto = stop.addPhoto("private/second", "second.png", "image/png", 202);
+
+        PlaceDetailsResponse response = TravelApiMapper.toResponse(new PlaceDetails(rome, List.of(stop)));
+
+        assertThat(response.city().id()).isEqualTo(rome.getId());
+        assertThat(response.city().country().name()).isEqualTo("Italy");
+        assertThat(response.visitCount()).isEqualTo(1);
+        assertThat(response.visits()).singleElement().satisfies(visit -> {
+            assertThat(visit.tripId()).isEqualTo(trip.getId());
+            assertThat(visit.tripName()).isEqualTo("Italy 2026");
+            assertThat(visit.tripDescription()).isEqualTo("A spring journey");
+            assertThat(visit.arrivalDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 3));
+            assertThat(visit.departureDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
+            assertThat(visit.note()).isEqualTo("Evening walks through Trastevere.");
+            assertThat(visit.photos()).extracting(photo -> photo.id())
+                    .containsExactly(firstPhoto.getId(), secondPhoto.getId());
+            assertThat(visit.photos()).extracting(photo -> photo.contentUrl())
+                    .containsExactly(
+                            "/api/trips/%s/stops/%s/photos/%s/content".formatted(
+                                    trip.getId(), stop.getId(), firstPhoto.getId()),
+                            "/api/trips/%s/stops/%s/photos/%s/content".formatted(
+                                    trip.getId(), stop.getId(), secondPhoto.getId()));
         });
     }
 }

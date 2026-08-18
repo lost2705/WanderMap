@@ -2,7 +2,11 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Trip, TripMapOverview, TripSummary } from './types/travel'
+import type { PlaceDetails, Trip, TripMapOverview, TripSummary } from './types/travel'
+
+vi.mock('./api/places', () => ({
+  getPlaceDetails: vi.fn(),
+}))
 
 vi.mock('./api/trips', () => ({
   addStop: vi.fn(),
@@ -25,7 +29,15 @@ vi.mock('./features/map/MapView', async () => {
   )
 
   return {
-    MapView: ({ overview, selectedTrip }: { overview: TripMapOverview | null; selectedTrip: Trip | null }) => {
+    MapView: ({
+      overview,
+      selectedTrip,
+      onSelectPlace,
+    }: {
+      overview: TripMapOverview | null
+      selectedTrip: Trip | null
+      onSelectPlace: (cityId: string) => void
+    }) => {
       const countryCodes = countryCodesForMap(overview, selectedTrip)
       const markers = markersForMap(overview, selectedTrip?.id ?? null)
 
@@ -35,7 +47,17 @@ vi.mock('./features/map/MapView', async () => {
           data-markers={markers.flatMap((marker) => marker.visits.map((visit) => visit.tripId)).join(',')}
           data-selected-trip={selectedTrip?.id ?? 'global'}
           data-testid="map-state"
-        />
+        >
+          {markers.map((marker) => marker.mode === 'global-place' ? (
+            <button key={marker.markerKey} type="button" onClick={() => onSelectPlace(marker.cityId)}>
+              Open memories for {marker.cityName}
+            </button>
+          ) : (
+            <button key={marker.markerKey} type="button">
+              {marker.cityName} itinerary marker
+            </button>
+          ))}
+        </div>
       )
     },
   }
@@ -49,6 +71,7 @@ import {
   updateStopJournal,
   uploadStopPhoto,
 } from './api/trips'
+import { getPlaceDetails } from './api/places'
 import App from './App'
 
 const tripSummaries: TripSummary[] = [
@@ -146,10 +169,69 @@ const overview: TripMapOverview = {
   ],
 }
 
+const romePlace: PlaceDetails = {
+  city: italyTrip.stops[0]!.city,
+  visitCount: 1,
+  visits: [{
+    tripId: 'italy',
+    tripName: 'Italy',
+    tripStartDate: '2026-05-01',
+    tripEndDate: '2026-05-12',
+    tripDescription: 'Spring in Italy.',
+    stopId: 'rome',
+    position: 1,
+    arrivalDate: '2026-05-03',
+    departureDate: '2026-05-05',
+    note: 'An evening walk through Trastevere.',
+    photos: [{
+      id: 'rome-memory',
+      originalFilename: 'rome.jpg',
+      contentType: 'image/jpeg',
+      size: 123,
+      position: 1,
+      contentUrl: '/api/trips/italy/stops/rome/photos/rome-memory/content',
+    }],
+  }],
+}
+
+const tokyoPlace: PlaceDetails = {
+  city: japanTrip.stops[0]!.city,
+  visitCount: 2,
+  visits: [
+    {
+      tripId: 'japan',
+      tripName: 'Japan 2026',
+      tripStartDate: '2026-04-01',
+      tripEndDate: '2026-04-12',
+      tripDescription: null,
+      stopId: 'tokyo',
+      position: 1,
+      arrivalDate: '2026-04-02',
+      departureDate: '2026-04-05',
+      note: 'Morning light in Shinjuku.',
+      photos: [],
+    },
+    {
+      tripId: 'italy',
+      tripName: 'A legacy journey',
+      tripStartDate: null,
+      tripEndDate: null,
+      tripDescription: null,
+      stopId: 'tokyo-legacy',
+      position: 4,
+      arrivalDate: null,
+      departureDate: null,
+      note: null,
+      photos: [],
+    },
+  ],
+}
+
 beforeEach(() => {
   vi.mocked(listTrips).mockResolvedValue(tripSummaries)
   vi.mocked(getMapOverview).mockResolvedValue(overview)
   vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? italyTrip : japanTrip))
+  vi.mocked(getPlaceDetails).mockImplementation((cityId) => Promise.resolve(cityId === 'city-rome' ? romePlace : tokyoPlace))
 })
 
 afterEach(() => {
@@ -304,9 +386,134 @@ describe('App trip selection', () => {
   })
 })
 
+describe('App global place details', () => {
+  it('opens a global marker through loading and renders its place memories', async () => {
+    const request = deferred<PlaceDetails>()
+    vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+
+    expect(screen.getByRole('status').textContent).toContain('Gathering your visits')
+    expect(getPlaceDetails).toHaveBeenCalledWith('city-rome', expect.any(AbortSignal))
+    request.resolve(romePlace)
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(screen.getByText('Italy', { selector: '.place-details-header > p' })).toBeTruthy()
+    expect(screen.getByText('Visited 1 time')).toBeTruthy()
+    expect(screen.getByText('May 3, 2026 – May 5, 2026')).toBeTruthy()
+    expect(screen.getByText('An evening walk through Trastevere.')).toBeTruthy()
+    expect(screen.getByRole('img', { name: 'Rome memory from Italy, photo 1' })).toBeTruthy()
+  })
+
+  it('closes place details without changing the global map', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+    await screen.findByRole('heading', { name: 'Rome' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull())
+    expectMapState('global', '', 'italy,japan')
+  })
+
+  it('does not reopen details when a request finishes after the panel is closed', async () => {
+    const request = deferred<PlaceDetails>()
+    vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+    expect(screen.getByRole('status')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    request.resolve(romePlace)
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull())
+    expectMapState('global', '', 'italy,japan')
+  })
+
+  it('keeps the newest place when an earlier request resolves late', async () => {
+    const romeRequest = deferred<PlaceDetails>()
+    const tokyoRequest = deferred<PlaceDetails>()
+    vi.mocked(getPlaceDetails)
+      .mockReturnValueOnce(romeRequest.promise)
+      .mockReturnValueOnce(tokyoRequest.promise)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Tokyo' }))
+    tokyoRequest.resolve(tokyoPlace)
+    expect(await screen.findByRole('heading', { name: 'Tokyo' })).toBeTruthy()
+    expect(screen.getByText('Visited 2 times')).toBeTruthy()
+
+    romeRequest.resolve(romePlace)
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Tokyo' })).toBeTruthy())
+    expect(screen.queryByRole('heading', { name: 'Rome' })).toBeNull()
+  })
+
+  it('shows a controlled place error and can retry', async () => {
+    vi.mocked(getPlaceDetails)
+      .mockRejectedValueOnce(new Error('Place history is unavailable.'))
+      .mockResolvedValueOnce(romePlace)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Place history is unavailable.')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expectMapState('global', '', 'italy,japan')
+  })
+
+  it('views the requested trip using the existing selection and closes the panel', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Tokyo' }))
+    await screen.findByRole('heading', { name: 'Tokyo' })
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View trip →' })[0]!)
+
+    expect(await screen.findByRole('heading', { name: 'Japan 2026' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Japan 20261 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expectMapState('japan', 'JP', 'japan')
+  })
+
+  it('does not open place history from a selected-trip marker', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rome itinerary marker' }))
+
+    expect(getPlaceDetails).not.toHaveBeenCalled()
+    expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull()
+    expectMapState('italy', 'IT', 'italy')
+  })
+})
+
 function expectMapState(selectedTrip: string, countries: string, markers: string) {
   const mapState = screen.getByTestId('map-state')
   expect(mapState.getAttribute('data-selected-trip')).toBe(selectedTrip)
   expect(mapState.getAttribute('data-countries')).toBe(countries)
   expect(mapState.getAttribute('data-markers')).toBe(markers)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }

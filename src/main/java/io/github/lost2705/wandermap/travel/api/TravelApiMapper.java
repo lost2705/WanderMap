@@ -2,12 +2,15 @@ package io.github.lost2705.wandermap.travel.api;
 
 import io.github.lost2705.wandermap.travel.api.dto.CityResponse;
 import io.github.lost2705.wandermap.travel.api.dto.CountryResponse;
+import io.github.lost2705.wandermap.travel.api.dto.PlaceDetailsResponse;
+import io.github.lost2705.wandermap.travel.api.dto.PlaceVisitResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripMapMarkerResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopPhotoResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripSummaryResponse;
+import io.github.lost2705.wandermap.travel.application.PlaceDetails;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
@@ -81,6 +84,29 @@ final class TravelApiMapper {
                 photo.getSize(),
                 photo.getPosition(),
                 contentUrl);
+    }
+
+    static PlaceDetailsResponse toResponse(PlaceDetails details) {
+        return new PlaceDetailsResponse(
+                toResponse(details.city()),
+                details.visits().size(),
+                details.visits().stream().map(TravelApiMapper::toPlaceVisitResponse).toList());
+    }
+
+    private static PlaceVisitResponse toPlaceVisitResponse(TripStop stop) {
+        Trip trip = stop.getTrip();
+        return new PlaceVisitResponse(
+                trip.getId(),
+                trip.getName(),
+                trip.getStartDate(),
+                trip.getEndDate(),
+                trip.getDescription(),
+                stop.getId(),
+                stop.getPosition(),
+                stop.getArrivalDate(),
+                stop.getDepartureDate(),
+                stop.getNote(),
+                stop.getPhotos().stream().map(TravelApiMapper::toResponse).toList());
     }
 
     private static CityResponse toResponse(City city) {

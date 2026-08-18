@@ -10,6 +10,9 @@ import org.springframework.data.repository.query.Param;
 
 public interface CityRepository extends JpaRepository<City, UUID> {
 
+    @Query("SELECT city FROM City city JOIN FETCH city.country WHERE city.id = :cityId")
+    Optional<City> findByIdWithCountry(@Param("cityId") UUID cityId);
+
     @Query("""
             SELECT city
             FROM City city
