@@ -11,6 +11,7 @@ import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopPhotoResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripSummaryResponse;
 import io.github.lost2705.wandermap.travel.application.PlaceDetails;
+import io.github.lost2705.wandermap.travel.application.TripMapOverview;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
@@ -48,7 +49,8 @@ final class TravelApiMapper {
                 trip.getStops().size());
     }
 
-    static TripMapOverviewResponse toMapOverviewResponse(List<Trip> trips) {
+    static TripMapOverviewResponse toMapOverviewResponse(TripMapOverview overview) {
+        List<Trip> trips = overview.trips();
         List<TripStop> stops = trips.stream().flatMap(trip -> trip.getStops().stream()).toList();
         List<String> visitedCountryCodes = stops.stream()
                 .map(stop -> stop.getCity().getCountry().getCode())
@@ -60,7 +62,7 @@ final class TravelApiMapper {
                 .filter(java.util.Objects::nonNull)
                 .sorted(Comparator.comparing(TripMapMarkerResponse::tripId).thenComparingInt(TripMapMarkerResponse::position))
                 .toList();
-        return new TripMapOverviewResponse(visitedCountryCodes, markers);
+        return new TripMapOverviewResponse(visitedCountryCodes, markers, overview.memoryCount());
     }
 
     static TripStopResponse toResponse(TripStop stop) {

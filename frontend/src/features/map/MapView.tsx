@@ -20,8 +20,8 @@ const COUNTRY_BOUNDARIES_URL =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson'
 const WORLD_OVERVIEW_BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 85]]
 const WORLD_OVERVIEW_PADDING = 28
-const COUNTRY_FILL = '#f2a620'
-const COUNTRY_LINE = '#8b3d0b'
+const COUNTRY_FILL = 'var(--color-map-country-fill)'
+const COUNTRY_LINE = 'var(--color-map-country-line)'
 
 interface MapViewProps {
   overview: TripMapOverview | null
@@ -56,12 +56,14 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
   const markerRefs = useRef<MapMarkerReference[]>([])
   const selectedTripRef = useRef(selectedTrip)
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
+  const [mapAccentColor, setMapAccentColor] = useState<string | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
   const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
   const displayMarkers = markersForMap(overview, selectedTrip?.id ?? null)
-  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip))
+  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip)
+    .map((route) => ({ ...route, color: mapAccentColor ?? route.color })))
   const routeDataKey = JSON.stringify(routeData)
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
   const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)
@@ -70,6 +72,19 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
   useEffect(() => {
     selectedTripRef.current = selectedTrip
   }, [selectedTrip])
+
+  useEffect(() => {
+    const readThemeAccent = () => {
+      const accent = window.getComputedStyle(document.documentElement)
+        .getPropertyValue('--color-map-route')
+        .trim()
+      setMapAccentColor(accent || null)
+    }
+    readThemeAccent()
+    const observer = new MutationObserver(readThemeAccent)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -197,7 +212,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
     const markers = displayMarkers
       .map((data): MapMarkerReference => ({
         data,
-        marker: createMarker(data, tripNames, onSelectPlace).addTo(map),
+        marker: createMarker(data, tripNames, onSelectPlace, mapAccentColor).addTo(map),
       }))
     const updateMarkerOffsets = () => {
       const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
@@ -227,7 +242,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
         markerRefs.current = []
       }
     }
-  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace])
+  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace, mapAccentColor])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -254,14 +269,16 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
 
   return (
     <section className="map-panel" aria-label="Interactive travel map">
-      <div className="map-caption">
+      <div className={`map-caption${selectedTrip ? ' is-journey' : ' is-global'}`}>
         <div>
-          <p className="eyebrow">A visual travel journal</p>
-          <h1>See where your stories take you.</h1>
+          <p className="eyebrow">{selectedTrip ? 'Journey map' : 'A visual travel journal'}</p>
+          <h1>{selectedTrip ? selectedTrip.name : (
+            <>See where your <span>stories take you.</span></>
+          )}</h1>
         </div>
         <p>{selectedTrip
-          ? `${visitedCountryCodes.length} countries visited`
-          : `${displayMarkers.length} places visited`}</p>
+          ? `${displayMarkers.length} ${displayMarkers.length === 1 ? 'place' : 'places'} · ${visitedCountryCodes.length} ${visitedCountryCodes.length === 1 ? 'country' : 'countries'}`
+          : `${displayMarkers.length} ${displayMarkers.length === 1 ? 'place' : 'places'} visited`}</p>
       </div>
       <div className="map-canvas" ref={mapElementRef} />
       <svg aria-hidden="true" className="country-overlay">
@@ -278,7 +295,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
         ))}
       </svg>
       {!selectedTrip && overview && overview.markers.length > 0 ? (
-        <p className="map-hint">Select a trip to focus its itinerary on the map.</p>
+        <p className="map-hint">Choose a journey to trace its story across the map.</p>
       ) : null}
     </section>
   )
@@ -363,13 +380,14 @@ function createMarker(
   marker: ReturnType<typeof markersForMap>[number],
   tripNames: Map<string, string>,
   onSelectPlace: (cityId: string) => void,
+  mapAccentColor: string | null,
 ): Marker {
   const element = document.createElement('button')
   element.className = marker.mode === 'global-place'
     ? 'map-marker is-place'
     : 'map-marker is-itinerary is-selected'
   element.type = 'button'
-  element.style.setProperty('--trip-color', marker.color)
+  element.style.setProperty('--trip-color', mapAccentColor ?? marker.color)
   element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
   element.textContent = marker.markerLabel ?? ''
 

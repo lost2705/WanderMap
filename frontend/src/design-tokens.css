@@ -1,0 +1,38 @@
+:root,
+:root[data-theme='terracotta'] {
+  color-scheme: light;
+
+  --color-canvas: #f5f0e6;
+  --color-surface: #fffdf8;
+  --color-surface-muted: #f8f4eb;
+  --color-surface-raised: rgb(255 253 248 / 94%);
+  --color-text-primary: #173042;
+  --color-text-secondary: #6f7d82;
+  --color-text-subtle: #8e9797;
+  --color-accent: #c45b2c;
+  --color-accent-strong: #9f431d;
+  --color-accent-soft: #f4e2d5;
+  --color-sage: #789b87;
+  --color-sage-strong: #547664;
+  --color-sage-soft: #e4eee7;
+  --color-sand: #d8c39a;
+  --color-border: #ddd7cb;
+  --color-border-strong: #c8c0b2;
+  --color-danger: #a8472d;
+  --color-danger-soft: #f8e4dc;
+  --color-focus: #995027;
+  --color-map-route: #bd5426;
+  --color-map-country-fill: #df8a5f;
+  --color-map-country-line: #98441f;
+
+  --font-editorial: Georgia, 'Times New Roman', serif;
+  --font-interface: Inter, Avenir, 'Segoe UI', Helvetica, Arial, sans-serif;
+
+  --radius-small: 0.45rem;
+  --radius-medium: 0.72rem;
+  --radius-large: 1rem;
+  --shadow-soft: 0 8px 28px rgb(35 43 39 / 9%);
+  --shadow-raised: 0 18px 48px rgb(23 48 66 / 17%);
+
+  --sidebar-width: clamp(20rem, 26vw, 23rem);
+}

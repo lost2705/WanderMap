@@ -10,6 +10,14 @@ import org.springframework.data.repository.query.Param;
 public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
 
     @Query("""
+            SELECT COUNT(DISTINCT stop.id)
+            FROM TripStop stop
+            LEFT JOIN stop.photos photo
+            WHERE stop.note IS NOT NULL OR photo.id IS NOT NULL
+            """)
+    long countStopsWithMemoryContent();
+
+    @Query("""
             SELECT DISTINCT stop
             FROM TripStop stop
             JOIN FETCH stop.trip

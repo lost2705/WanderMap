@@ -6,6 +6,7 @@ import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.PlaceDetailsResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
 import io.github.lost2705.wandermap.travel.application.PlaceDetails;
+import io.github.lost2705.wandermap.travel.application.TripMapOverview;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
@@ -30,9 +31,10 @@ class TravelApiMapperTest {
         trip.addStop(lucca);
         trip.addStop(new City(italy, "Unresolved village"));
 
-        TripMapOverviewResponse overview = TravelApiMapper.toMapOverviewResponse(List.of(trip));
+        TripMapOverviewResponse overview = TravelApiMapper.toMapOverviewResponse(new TripMapOverview(List.of(trip), 2));
 
         assertThat(overview.visitedCountryCodes()).containsExactly("IT");
+        assertThat(overview.memoryCount()).isEqualTo(2);
         assertThat(overview.markers()).singleElement().satisfies(marker -> {
             assertThat(marker.cityId()).isEqualTo(lucca.getId());
             assertThat(marker.cityName()).isEqualTo("Lucca");
@@ -54,7 +56,8 @@ class TravelApiMapperTest {
         firstTrip.addStop(rome);
         secondTrip.addStop(rome);
 
-        TripMapOverviewResponse overview = TravelApiMapper.toMapOverviewResponse(List.of(firstTrip, secondTrip));
+        TripMapOverviewResponse overview = TravelApiMapper.toMapOverviewResponse(
+                new TripMapOverview(List.of(firstTrip, secondTrip), 0));
 
         assertThat(overview.markers()).hasSize(2).allSatisfy(marker -> {
             assertThat(marker.cityId()).isEqualTo(rome.getId());

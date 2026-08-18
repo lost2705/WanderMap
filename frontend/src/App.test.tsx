@@ -145,6 +145,7 @@ const japanTrip: Trip = {
 
 const overview: TripMapOverview = {
   visitedCountryCodes: ['IT', 'JP'],
+  memoryCount: 1,
   markers: [
     {
       tripId: 'italy',
@@ -244,7 +245,7 @@ describe('App trip selection', () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
 
-    const italyButton = screen.getByRole('button', { name: 'Italy1 stop' })
+    const italyButton = screen.getByRole('button', { name: 'Italy, 1 place' })
     expect(italyButton.getAttribute('aria-pressed')).toBe('true')
     expectMapState('italy', 'IT', 'italy')
 
@@ -252,9 +253,11 @@ describe('App trip selection', () => {
 
     expect(italyButton.getAttribute('aria-pressed')).toBe('false')
     expect(screen.queryByRole('heading', { name: 'Italy' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Edit trip' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Edit journey' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Add a stop' })).toBeNull()
-    expect(screen.getByText('Select a trip to view its itinerary.')).toBeTruthy()
+    expect(screen.getByText('Select a journey to open its travel timeline.')).toBeTruthy()
+    expect(screen.getByLabelText('Travel atlas summary').textContent)
+      .toBe('Places2Countries2Journeys2Memories1')
     expectMapState('global', '', 'italy,japan')
 
     fireEvent.click(italyButton)
@@ -268,14 +271,14 @@ describe('App trip selection', () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
 
-    const italyButton = screen.getByRole('button', { name: 'Italy1 stop' })
-    const japanButton = screen.getByRole('button', { name: 'Japan 20261 stop' })
+    const italyButton = screen.getByRole('button', { name: 'Italy, 1 place' })
+    const japanButton = screen.getByRole('button', { name: 'Japan 2026, 1 place' })
     fireEvent.click(japanButton)
 
     expect(italyButton.getAttribute('aria-pressed')).toBe('false')
     expect(japanButton.getAttribute('aria-pressed')).toBe('true')
     expect(screen.queryByRole('heading', { name: 'Italy' })).toBeNull()
-    expect(screen.queryByText('Select a trip to view its itinerary.')).toBeNull()
+    expect(screen.queryByText('Select a journey to open its travel timeline.')).toBeNull()
 
     await screen.findByRole('heading', { name: 'Japan 2026' })
     expectMapState('japan', 'JP', 'japan')
@@ -325,6 +328,9 @@ describe('App trip selection', () => {
       contentUrl: '/api/photos/rome-photo',
     }
     vi.mocked(uploadStopPhoto).mockResolvedValue(createdPhoto)
+    vi.mocked(getMapOverview)
+      .mockResolvedValueOnce(overview)
+      .mockResolvedValueOnce({ ...overview, memoryCount: 2 })
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
     const file = new File(['jpeg'], 'Rome evening.jpg', { type: 'image/jpeg' })
@@ -335,8 +341,13 @@ describe('App trip selection', () => {
     expect(uploadStopPhoto).toHaveBeenCalledWith('italy', 'rome', file)
     expect(getTrip).toHaveBeenCalledTimes(1)
     expect(getMapOverview).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'Italy1 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
     expectMapState('italy', 'IT', 'italy')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    await waitFor(() => expect(screen.getByLabelText('Travel atlas summary').textContent)
+      .toBe('Places2Countries2Journeys2Memories2'))
+    expect(getMapOverview).toHaveBeenCalledTimes(2)
   })
 
   it('shows an upload failure without changing the selected trip or map data', async () => {
@@ -381,7 +392,7 @@ describe('App trip selection', () => {
     expect(deleteStopPhoto).toHaveBeenCalledWith('italy', 'rome', 'rome-photo')
     expect(getTrip).toHaveBeenCalledTimes(1)
     expect(getMapOverview).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'Italy1 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
     expectMapState('italy', 'IT', 'italy')
   })
 })
@@ -392,7 +403,7 @@ describe('App global place details', () => {
     vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
 
@@ -411,7 +422,7 @@ describe('App global place details', () => {
   it('closes place details without changing the global map', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
     await screen.findByRole('heading', { name: 'Rome' })
 
@@ -426,7 +437,7 @@ describe('App global place details', () => {
     vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
     expect(screen.getByRole('status')).toBeTruthy()
 
@@ -445,7 +456,7 @@ describe('App global place details', () => {
       .mockReturnValueOnce(tokyoRequest.promise)
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Tokyo' }))
@@ -464,7 +475,7 @@ describe('App global place details', () => {
       .mockResolvedValueOnce(romePlace)
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
 
     expect((await screen.findByRole('alert')).textContent).toContain('Place history is unavailable.')
@@ -477,15 +488,15 @@ describe('App global place details', () => {
   it('views the requested trip using the existing selection and closes the panel', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
-    fireEvent.click(screen.getByRole('button', { name: 'Italy1 stop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open memories for Tokyo' }))
     await screen.findByRole('heading', { name: 'Tokyo' })
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'View trip →' })[0]!)
+    fireEvent.click(screen.getAllByRole('button', { name: 'View journey →' })[0]!)
 
     expect(await screen.findByRole('heading', { name: 'Japan 2026' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Japan 20261 stop' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' }).getAttribute('aria-pressed')).toBe('true')
     expectMapState('japan', 'JP', 'japan')
   })
 

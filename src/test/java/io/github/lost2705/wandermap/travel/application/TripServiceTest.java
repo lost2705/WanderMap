@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.lost2705.wandermap.travel.domain.City;
@@ -19,6 +20,7 @@ import io.github.lost2705.wandermap.travel.domain.TripStopNotFoundException;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
+import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -49,6 +51,9 @@ class TripServiceTest {
     private CityRepository cityRepository;
 
     @Mock
+    private TripStopRepository tripStopRepository;
+
+    @Mock
     private CityLocationResolver cityLocationResolver;
 
     @Mock
@@ -62,6 +67,7 @@ class TripServiceTest {
                 tripRepository,
                 countryRepository,
                 cityRepository,
+                tripStopRepository,
                 cityLocationResolver,
                 photoFileLifecycle);
     }
@@ -108,6 +114,30 @@ class TripServiceTest {
         when(tripRepository.findAllWithStopsOrderByNameAscIdAsc()).thenReturn(List.of(alps, italy));
 
         assertThat(tripService.listTrips()).containsExactly(alps, italy);
+    }
+
+    @Test
+    void buildsMapOverviewWithTheAggregateMemoryCountWithoutReadingPhotoStorage() {
+        Trip italy = new Trip("Italy", null, null);
+        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc()).thenReturn(List.of(italy));
+        when(tripStopRepository.countStopsWithMemoryContent()).thenReturn(3L);
+
+        TripMapOverview overview = tripService.getMapOverview();
+
+        assertThat(overview.trips()).containsExactly(italy);
+        assertThat(overview.memoryCount()).isEqualTo(3L);
+        verifyNoInteractions(photoFileLifecycle);
+    }
+
+    @Test
+    void exposesZeroMemoriesForAnEmptyOverview() {
+        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc()).thenReturn(List.of());
+        when(tripStopRepository.countStopsWithMemoryContent()).thenReturn(0L);
+
+        TripMapOverview overview = tripService.getMapOverview();
+
+        assertThat(overview.trips()).isEmpty();
+        assertThat(overview.memoryCount()).isZero();
     }
 
     @Test

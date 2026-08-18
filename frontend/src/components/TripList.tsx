@@ -1,45 +1,96 @@
-import type { TripSummary } from '../types/travel'
+import type { TripMapOverview, TripSummary } from '../types/travel'
+import { formatCalendarDateRange } from '../utils/calendarDate'
 
 interface TripListProps {
   trips: TripSummary[]
+  overview: TripMapOverview | null
   selectedTripId: string | null
   isLoading: boolean
   onSelect: (tripId: string) => void
   onCreate: () => void
 }
 
-export function TripList({ trips, selectedTripId, isLoading, onSelect, onCreate }: TripListProps) {
+export function TripList({ trips, overview, selectedTripId, isLoading, onSelect, onCreate }: TripListProps) {
+  const placeCount = new Set((overview?.markers ?? []).map((marker) => marker.cityId)).size
+  const isGlobalOverview = selectedTripId === null
+
   return (
-    <section className="trip-list-section" aria-labelledby="trips-heading">
+    <section className={`trip-list-section${isGlobalOverview ? ' is-global' : ''}`} aria-labelledby="trips-heading">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Your journeys</p>
-          <h2 id="trips-heading">Trips</h2>
+          <h2 id="trips-heading">Journeys</h2>
         </div>
-        <button className="button button-primary button-compact" type="button" onClick={onCreate}>
-          + New trip
+        <button aria-label="Create a new journey" className="button button-quiet button-compact journey-create" type="button" onClick={onCreate}>
+          <span aria-hidden="true">＋</span>
+          <span>New journey</span>
         </button>
       </div>
       {isLoading ? <p className="status-text">Loading trips…</p> : null}
       {!isLoading && trips.length === 0 ? (
-        <p className="empty-text">Your map is waiting for its first trip.</p>
+        <p className="empty-text">Your atlas is waiting for its first journey.</p>
       ) : null}
-      <div className="trip-list" role="list">
-        {trips.map((trip) => (
-          <button
-            aria-pressed={trip.id === selectedTripId}
-            className={`trip-list-item${trip.id === selectedTripId ? ' is-selected' : ''}`}
-            key={trip.id}
-            type="button"
-            onClick={() => onSelect(trip.id)}
-          >
-            <span className="trip-list-item-name">{trip.name}</span>
-            <span className="trip-list-item-meta">
-              {trip.stopCount} {trip.stopCount === 1 ? 'stop' : 'stops'}
-            </span>
-          </button>
-        ))}
-      </div>
+      <ul className="trip-list">
+        {trips.map((trip) => {
+          const dateRange = formatCalendarDateRange(trip.startDate, trip.endDate)
+          const places = placeNamesForTrip(overview, trip.id)
+          return (
+            <li key={trip.id}>
+              <button
+                aria-label={`${trip.name}, ${trip.stopCount} ${trip.stopCount === 1 ? 'place' : 'places'}`}
+                aria-pressed={trip.id === selectedTripId}
+                className={`trip-list-item${trip.id === selectedTripId ? ' is-selected' : ''}`}
+                type="button"
+                onClick={() => onSelect(trip.id)}
+              >
+                <span className="trip-list-item-heading">
+                  <strong className="trip-list-item-name">{trip.name}</strong>
+                  <span className="trip-list-item-count">
+                    {trip.stopCount} {trip.stopCount === 1 ? 'place' : 'places'}
+                  </span>
+                </span>
+                {dateRange ? <span className="trip-list-item-dates">{dateRange}</span> : null}
+                {places.length > 0 ? <span className="trip-list-item-places">{places.join(' · ')}</span> : null}
+                {trip.description ? <span className="trip-list-item-description">{trip.description}</span> : null}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {!isLoading && isGlobalOverview && trips.length > 0 ? (
+        <p className="journey-selection-hint">Select a journey to open its travel timeline.</p>
+      ) : null}
+      {!isLoading && isGlobalOverview ? (
+        <section className="atlas-summary" aria-labelledby="atlas-stats-heading">
+          <p className="eyebrow" id="atlas-stats-heading">Stats</p>
+          <dl className="atlas-stats" aria-label="Travel atlas summary">
+            <div>
+              <dt>Places</dt>
+              <dd>{placeCount}</dd>
+            </div>
+            <div>
+              <dt>Countries</dt>
+              <dd>{overview?.visitedCountryCodes.length ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Journeys</dt>
+              <dd>{trips.length}</dd>
+            </div>
+            <div>
+              <dt>Memories</dt>
+              <dd>{overview?.memoryCount ?? 0}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
     </section>
   )
+}
+
+function placeNamesForTrip(overview: TripMapOverview | null, tripId: string): string[] {
+  return [...new Set((overview?.markers ?? [])
+    .filter((marker) => marker.tripId === tripId)
+    .sort((left, right) => left.position - right.position)
+    .map((marker) => marker.cityName))]
+    .slice(0, 4)
 }

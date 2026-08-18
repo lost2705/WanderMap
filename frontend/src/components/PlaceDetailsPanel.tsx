@@ -88,7 +88,7 @@ function PlaceVisitCard({
           <h3>{visit.tripName}</h3>
           {visitDates ? <p>{visitDates}</p> : null}
         </div>
-        <span>Stop {visit.position}</span>
+        <span>Visit {visit.position}</span>
       </div>
       {visit.tripDescription ? <p className="place-trip-description">{visit.tripDescription}</p> : null}
       {visit.note ? <p className="place-visit-note">{visit.note}</p> : null}
@@ -112,7 +112,7 @@ function PlaceVisitCard({
         type="button"
         onClick={() => onViewTrip(visit.tripId)}
       >
-        View trip →
+        View journey →
       </button>
     </li>
   )

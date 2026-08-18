@@ -12,13 +12,13 @@ describe('TripForm journal fields', () => {
     render(
       <TripForm
         isSubmitting={false}
-        submitLabel="Create trip"
+        submitLabel="Create journey"
         onCancel={() => undefined}
         onSubmit={onSubmit}
       />,
     )
 
-    fireEvent.change(screen.getByLabelText('Trip name'), { target: { value: 'Japan 2026' } })
+    fireEvent.change(screen.getByLabelText('Journey name'), { target: { value: 'Japan 2026' } })
     fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-04-01' } })
     fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-04-12' } })
     fireEvent.change(screen.getByLabelText('Description'), {
@@ -26,7 +26,7 @@ describe('TripForm journal fields', () => {
     })
 
     await act(async () => {
-      fireEvent.submit(screen.getByRole('button', { name: 'Create trip' }).closest('form')!)
+      fireEvent.submit(screen.getByRole('button', { name: 'Create journey' }).closest('form')!)
       await Promise.resolve()
     })
 
@@ -79,17 +79,17 @@ describe('TripForm journal fields', () => {
     render(
       <TripForm
         isSubmitting={false}
-        submitLabel="Create trip"
+        submitLabel="Create journey"
         onCancel={() => undefined}
         onSubmit={onSubmit}
       />,
     )
 
-    fireEvent.change(screen.getByLabelText('Trip name'), { target: { value: 'Invalid trip' } })
+    fireEvent.change(screen.getByLabelText('Journey name'), { target: { value: 'Invalid trip' } })
     fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-04-12' } })
     fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-04-01' } })
     await act(async () => {
-      fireEvent.submit(screen.getByRole('button', { name: 'Create trip' }).closest('form')!)
+      fireEvent.submit(screen.getByRole('button', { name: 'Create journey' }).closest('form')!)
     })
 
     expect(screen.getByRole('alert').textContent).toBe('End date cannot be before start date.')

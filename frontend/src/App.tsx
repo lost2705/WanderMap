@@ -279,6 +279,9 @@ export default function App() {
     setFormMode(null)
     setSelectedTrip(null)
     setSelectedTripId(nextTripId)
+    if (nextTripId === null) {
+      void refreshOverview()
+    }
   }
 
   function handleViewTrip(tripId: string) {
@@ -289,15 +292,27 @@ export default function App() {
     setSelectedTripId(tripId)
   }
 
+  async function refreshOverview() {
+    try {
+      setOverview(await getMapOverview())
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }
+
   return (
     <main className="application-shell">
       <aside className="sidebar">
         <a className="brand" href="/" aria-label="WanderMap home">
           <span className="brand-mark">W</span>
-          <span>WanderMap</span>
+          <span className="brand-copy">
+            <strong>WanderMap</strong>
+            <small>Personal atlas</small>
+          </span>
         </a>
         <TripList
           isLoading={isLoading}
+          overview={overview}
           selectedTripId={selectedTripId}
           trips={trips}
           onCreate={() => {
@@ -307,21 +322,21 @@ export default function App() {
           onSelect={handleSelectTrip}
         />
         {formMode === 'create' ? (
-          <section className="editor-panel" aria-label="Create a trip">
+          <section className="editor-panel" aria-label="Create a journey">
             <p className="eyebrow">Start a new story</p>
-            <h2>New trip</h2>
+            <h2>New journey</h2>
             <TripForm
               isSubmitting={isMutating}
-              submitLabel="Create trip"
+              submitLabel="Create journey"
               onCancel={() => setFormMode(null)}
               onSubmit={handleCreate}
             />
           </section>
         ) : null}
         {formMode === 'edit' && activeSelectedTrip ? (
-          <section className="editor-panel" aria-label="Edit selected trip">
-            <p className="eyebrow">Trip details</p>
-            <h2>Edit trip</h2>
+          <section className="editor-panel" aria-label="Edit selected journey">
+            <p className="eyebrow">Journey details</p>
+            <h2>Edit journey</h2>
             <TripForm
               initialValue={activeSelectedTrip}
               isSubmitting={isMutating}
@@ -346,18 +361,13 @@ export default function App() {
             />
             <div className="trip-management-actions">
               <button className="button button-quiet" disabled={isMutating} type="button" onClick={() => setFormMode('edit')}>
-                Edit trip
+                Edit journey
               </button>
               <button className="button button-danger" disabled={isMutating} type="button" onClick={() => void handleDeleteTrip()}>
-                Delete trip
+                Delete journey
               </button>
             </div>
           </>
-        ) : null}
-        {!formMode && !isLoading && selectedTripId === null ? (
-          <section className="itinerary" aria-label="No selected trip">
-            <p className="empty-text">Select a trip to view its itinerary.</p>
-          </section>
         ) : null}
       </aside>
       <div className="content-area">

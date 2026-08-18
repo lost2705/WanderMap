@@ -69,7 +69,7 @@ public class TripController {
 
     @GetMapping("/map-overview")
     public TripMapOverviewResponse mapOverview() {
-        return TravelApiMapper.toMapOverviewResponse(tripService.listTripsForMapOverview());
+        return TravelApiMapper.toMapOverviewResponse(tripService.getMapOverview());
     }
 
     @GetMapping("/{tripId}")
