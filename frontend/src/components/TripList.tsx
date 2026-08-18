@@ -88,9 +88,24 @@ export function TripList({ trips, overview, selectedTripId, isLoading, onSelect,
 }
 
 function placeNamesForTrip(overview: TripMapOverview | null, tripId: string): string[] {
-  return [...new Set((overview?.markers ?? [])
+  const uniquePlaces = new Map<string, TripMapOverview['markers'][number]>()
+
+  const tripMarkers = (overview?.markers ?? [])
     .filter((marker) => marker.tripId === tripId)
     .sort((left, right) => left.position - right.position)
-    .map((marker) => marker.cityName))]
-    .slice(0, 4)
+  tripMarkers.forEach((marker) => {
+    if (!uniquePlaces.has(marker.cityId)) {
+      uniquePlaces.set(marker.cityId, marker)
+    }
+  })
+
+  const previewPlaces = [...uniquePlaces.values()].slice(0, 4)
+  const cityNameCounts = new Map<string, number>()
+  previewPlaces.forEach((marker) => {
+    cityNameCounts.set(marker.cityName, (cityNameCounts.get(marker.cityName) ?? 0) + 1)
+  })
+
+  return previewPlaces.map((marker) => cityNameCounts.get(marker.cityName)! > 1
+    ? `${marker.cityName}, ${marker.country.name}`
+    : marker.cityName)
 }

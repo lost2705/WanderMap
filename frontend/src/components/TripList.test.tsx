@@ -56,7 +56,7 @@ const overview: TripMapOverview = {
 afterEach(cleanup)
 
 describe('TripList journey index', () => {
-  it('shows real journey metadata and unique place names in itinerary order', () => {
+  it('deduplicates a repeated cityId and preserves its first itinerary position', () => {
     render(
       <TripList
         isLoading={false}
@@ -75,6 +75,119 @@ describe('TripList journey index', () => {
     expect(screen.getByText('Spring trip through Japan.')).toBeTruthy()
     expect(screen.getByLabelText('Travel atlas summary').textContent)
       .toBe('Places2Countries1Journeys1Memories4')
+  })
+
+  it('keeps different cityIds with the same name and disambiguates them by country', () => {
+    const florenceTrip: TripSummary = {
+      id: 'florence-trip',
+      name: 'Two Florences',
+      startDate: null,
+      endDate: null,
+      description: null,
+      stopCount: 3,
+    }
+    const florenceOverview: TripMapOverview = {
+      visitedCountryCodes: ['IT', 'US', 'RU'],
+      memoryCount: 0,
+      markers: [
+        {
+          tripId: 'florence-trip',
+          stopId: 'moscow-stop',
+          cityId: 'moscow',
+          position: 3,
+          cityName: 'Moscow',
+          latitude: 55.7558,
+          longitude: 37.6173,
+          country: { code: 'RU', name: 'Russian Federation' },
+        },
+        {
+          tripId: 'florence-trip',
+          stopId: 'florence-us-stop',
+          cityId: 'florence-us',
+          position: 2,
+          cityName: 'Florence',
+          latitude: 34.7998,
+          longitude: -87.6773,
+          country: { code: 'US', name: 'United States' },
+        },
+        {
+          tripId: 'florence-trip',
+          stopId: 'florence-it-stop',
+          cityId: 'florence-it',
+          position: 1,
+          cityName: 'Florence',
+          latitude: 43.7696,
+          longitude: 11.2558,
+          country: { code: 'IT', name: 'Italy' },
+        },
+      ],
+    }
+
+    render(
+      <TripList
+        isLoading={false}
+        overview={florenceOverview}
+        selectedTripId={null}
+        trips={[florenceTrip]}
+        onCreate={() => undefined}
+        onSelect={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText('Florence, Italy · Florence, United States · Moscow')).toBeTruthy()
+  })
+
+  it('limits the preview to the first four unique cityIds', () => {
+    const extendedOverview: TripMapOverview = {
+      ...overview,
+      markers: [
+        ...overview.markers,
+        {
+          tripId: 'japan',
+          stopId: 'osaka-stop',
+          cityId: 'osaka',
+          position: 4,
+          cityName: 'Osaka',
+          latitude: 34.6937,
+          longitude: 135.5023,
+          country: { code: 'JP', name: 'Japan' },
+        },
+        {
+          tripId: 'japan',
+          stopId: 'nara-stop',
+          cityId: 'nara',
+          position: 5,
+          cityName: 'Nara',
+          latitude: 34.6851,
+          longitude: 135.8048,
+          country: { code: 'JP', name: 'Japan' },
+        },
+        {
+          tripId: 'japan',
+          stopId: 'hiroshima-stop',
+          cityId: 'hiroshima',
+          position: 6,
+          cityName: 'Hiroshima',
+          latitude: 34.3853,
+          longitude: 132.4553,
+          country: { code: 'JP', name: 'Japan' },
+        },
+      ],
+    }
+
+    render(
+      <TripList
+        isLoading={false}
+        overview={extendedOverview}
+        selectedTripId={null}
+        trips={[{ ...trips[0], stopCount: 6 }]}
+        onCreate={() => undefined}
+        onSelect={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText('Tokyo · Kyoto · Osaka · Nara')).toBeTruthy()
+    expect(screen.queryByText(/Hiroshima/)).toBeNull()
   })
 
   it('keeps journey selection and creation as explicit button actions', () => {
