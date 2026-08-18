@@ -4,14 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.PlaceDetailsResponse;
+import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
 import io.github.lost2705.wandermap.travel.application.PlaceDetails;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
+import io.github.lost2705.wandermap.travel.domain.TripStop;
+import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
 import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class TravelApiMapperTest {
 
@@ -78,8 +82,7 @@ class TravelApiMapperTest {
                 java.time.LocalDate.of(2026, 5, 3),
                 java.time.LocalDate.of(2026, 5, 5),
                 "Evening walks through Trastevere.");
-        var firstPhoto = stop.addPhoto("private/first", "first.jpg", "image/jpeg", 101);
-        var secondPhoto = stop.addPhoto("private/second", "second.png", "image/png", 202);
+        List<TripStopPhoto> orderedPhotos = addPhotosAndReorderCollection(stop);
 
         PlaceDetailsResponse response = TravelApiMapper.toResponse(new PlaceDetails(rome, List.of(stop)));
 
@@ -93,14 +96,41 @@ class TravelApiMapperTest {
             assertThat(visit.arrivalDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 3));
             assertThat(visit.departureDate()).isEqualTo(java.time.LocalDate.of(2026, 5, 5));
             assertThat(visit.note()).isEqualTo("Evening walks through Trastevere.");
-            assertThat(visit.photos()).extracting(photo -> photo.id())
-                    .containsExactly(firstPhoto.getId(), secondPhoto.getId());
+            assertThat(visit.photos()).extracting(photo -> photo.position()).containsExactly(1, 2, 3);
+            assertThat(visit.photos()).extracting(photo -> photo.id()).containsExactlyElementsOf(
+                    orderedPhotos.stream().map(TripStopPhoto::getId).toList());
             assertThat(visit.photos()).extracting(photo -> photo.contentUrl())
                     .containsExactly(
                             "/api/trips/%s/stops/%s/photos/%s/content".formatted(
-                                    trip.getId(), stop.getId(), firstPhoto.getId()),
+                                    trip.getId(), stop.getId(), orderedPhotos.get(0).getId()),
                             "/api/trips/%s/stops/%s/photos/%s/content".formatted(
-                                    trip.getId(), stop.getId(), secondPhoto.getId()));
+                                    trip.getId(), stop.getId(), orderedPhotos.get(1).getId()),
+                            "/api/trips/%s/stops/%s/photos/%s/content".formatted(
+                                    trip.getId(), stop.getId(), orderedPhotos.get(2).getId()));
         });
+    }
+
+    @Test
+    void mapsTripStopPhotosByPositionRegardlessOfEntityCollectionOrder() {
+        Trip trip = new Trip("Italy photos", null, null);
+        TripStop stop = trip.addStop(new City(new Country("IT", "Italy"), "Rome"));
+        List<TripStopPhoto> orderedPhotos = addPhotosAndReorderCollection(stop);
+
+        TripStopResponse response = TravelApiMapper.toResponse(stop);
+
+        assertThat(response.photos()).extracting(photo -> photo.position()).containsExactly(1, 2, 3);
+        assertThat(response.photos()).extracting(photo -> photo.id()).containsExactlyElementsOf(
+                orderedPhotos.stream().map(TripStopPhoto::getId).toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<TripStopPhoto> addPhotosAndReorderCollection(TripStop stop) {
+        TripStopPhoto first = stop.addPhoto("private/first", "first.jpg", "image/jpeg", 101);
+        TripStopPhoto second = stop.addPhoto("private/second", "second.png", "image/png", 202);
+        TripStopPhoto third = stop.addPhoto("private/third", "third.webp", "image/webp", 303);
+        List<TripStopPhoto> entityPhotos = (List<TripStopPhoto>) ReflectionTestUtils.getField(stop, "photos");
+        entityPhotos.clear();
+        entityPhotos.addAll(List.of(third, first, second));
+        return List.of(first, second, third);
     }
 }
