@@ -65,6 +65,26 @@ export interface TripMapOverview {
   markers: TripMapMarker[]
 }
 
+export interface PlaceDetails {
+  city: City
+  visitCount: number
+  visits: PlaceVisit[]
+}
+
+export interface PlaceVisit {
+  tripId: string
+  tripName: string
+  tripStartDate: string | null
+  tripEndDate: string | null
+  tripDescription: string | null
+  stopId: string
+  position: number
+  arrivalDate: string | null
+  departureDate: string | null
+  note: string | null
+  photos: TripStopPhoto[]
+}
+
 export interface CitySearchResult {
   name: string
   countryName: string

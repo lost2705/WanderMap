@@ -1,6 +1,7 @@
 package io.github.lost2705.wandermap.travel.api;
 
 import io.github.lost2705.wandermap.travel.application.CountryNotFoundException;
+import io.github.lost2705.wandermap.travel.application.CityNotFoundException;
 import io.github.lost2705.wandermap.travel.application.GeocodingUnavailableException;
 import io.github.lost2705.wandermap.travel.application.TripNotFoundException;
 import io.github.lost2705.wandermap.travel.application.PhotoStorageException;
@@ -35,6 +36,11 @@ public class TravelExceptionHandler {
     @ExceptionHandler(TripStopNotFoundException.class)
     ProblemDetail handleTripStopNotFound(TripStopNotFoundException exception) {
         return problem(HttpStatus.NOT_FOUND, "Trip stop not found", exception.getMessage(), "TRIP_STOP_NOT_FOUND");
+    }
+
+    @ExceptionHandler(CityNotFoundException.class)
+    ProblemDetail handleCityNotFound(CityNotFoundException exception) {
+        return problem(HttpStatus.NOT_FOUND, "Place not found", exception.getMessage(), "PLACE_NOT_FOUND");
     }
 
     @ExceptionHandler(TripStopPhotoNotFoundException.class)

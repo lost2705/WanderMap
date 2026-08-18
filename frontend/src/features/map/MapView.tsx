@@ -27,6 +27,7 @@ interface MapViewProps {
   overview: TripMapOverview | null
   selectedTrip: Trip | null
   trips: TripSummary[]
+  onSelectPlace: (cityId: string) => void
 }
 
 interface CountryBoundaryData {
@@ -49,7 +50,7 @@ type CountryGeometry =
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] }
 
-export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
+export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRefs = useRef<MapMarkerReference[]>([])
@@ -196,7 +197,7 @@ export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
     const markers = displayMarkers
       .map((data): MapMarkerReference => ({
         data,
-        marker: createMarker(data, tripNames).addTo(map),
+        marker: createMarker(data, tripNames, onSelectPlace).addTo(map),
       }))
     const updateMarkerOffsets = () => {
       const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
@@ -226,7 +227,7 @@ export function MapView({ overview, selectedTrip, trips }: MapViewProps) {
         markerRefs.current = []
       }
     }
-  }, [readyMap, overview, selectedTrip?.id, tripNamesKey])
+  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -361,6 +362,7 @@ function isCountryGeometry(geometry: unknown): geometry is CountryGeometry {
 function createMarker(
   marker: ReturnType<typeof markersForMap>[number],
   tripNames: Map<string, string>,
+  onSelectPlace: (cityId: string) => void,
 ): Marker {
   const element = document.createElement('button')
   element.className = marker.mode === 'global-place'
@@ -371,6 +373,14 @@ function createMarker(
   element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
   element.textContent = marker.markerLabel ?? ''
 
+  const mapMarker = new Marker({ element, anchor: 'center', offset: marker.pixelOffset })
+    .setLngLat(marker.coordinate)
+
+  if (marker.mode === 'global-place') {
+    element.addEventListener('click', () => onSelectPlace(marker.cityId))
+    return mapMarker
+  }
+
   const popupContent = document.createElement('div')
   const city = document.createElement('strong')
   city.textContent = marker.cityName
@@ -378,28 +388,16 @@ function createMarker(
   country.textContent = marker.country.name
   popupContent.append(city, country)
 
-  if (marker.mode === 'selected-itinerary') {
-    const visit = marker.visits[0]
-    const tripName = visit ? tripNames.get(visit.tripId) : undefined
-    if (tripName) {
-      popupContent.append(popupLine(`Trip: ${tripName}`))
-    }
-    if (visit) {
-      popupContent.append(popupLine(`Stop ${visit.position}`))
-    }
-  } else {
-    if (marker.visits.length > 1) {
-      popupContent.append(popupLine(`${marker.visits.length} visits`))
-    }
-    popupContent.append(popupLine('Visited in:'))
-    for (const tripName of uniqueTripNames(marker.visits, tripNames)) {
-      popupContent.append(popupLine(tripName))
-    }
+  const visit = marker.visits[0]
+  const tripName = visit ? tripNames.get(visit.tripId) : undefined
+  if (tripName) {
+    popupContent.append(popupLine(`Trip: ${tripName}`))
+  }
+  if (visit) {
+    popupContent.append(popupLine(`Stop ${visit.position}`))
   }
 
-  return new Marker({ element, anchor: 'center', offset: marker.pixelOffset })
-    .setLngLat(marker.coordinate)
-    .setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
+  return mapMarker.setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
 }
 
 function markerAriaLabel(

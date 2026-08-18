@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from './api/client'
+import { getPlaceDetails } from './api/places'
 import {
   addStop,
   createTrip,
@@ -15,11 +16,13 @@ import {
   uploadStopPhoto,
 } from './api/trips'
 import { Itinerary } from './components/Itinerary'
+import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
 import { MapView } from './features/map/MapView'
 import type {
   CitySearchResult,
+  PlaceDetails,
   StopJournalInput,
   Trip,
   TripDetailsInput,
@@ -36,6 +39,11 @@ export default function App() {
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
+  const [placeDetails, setPlaceDetails] = useState<PlaceDetails | null>(null)
+  const [isPlaceDetailsLoading, setIsPlaceDetailsLoading] = useState(false)
+  const [placeDetailsError, setPlaceDetailsError] = useState<string | null>(null)
+  const [placeDetailsRequestVersion, setPlaceDetailsRequestVersion] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
   const [formMode, setFormMode] = useState<TripFormMode>(null)
@@ -71,6 +79,46 @@ export default function App() {
       cancelled = true
     }
   }, [selectedTripId])
+
+  useEffect(() => {
+    if (!selectedPlaceId) {
+      setPlaceDetails(null)
+      setPlaceDetailsError(null)
+      setIsPlaceDetailsLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+    setPlaceDetails(null)
+    setPlaceDetailsError(null)
+    setIsPlaceDetailsLoading(true)
+    getPlaceDetails(selectedPlaceId, controller.signal)
+      .then((details) => {
+        if (!cancelled) {
+          setPlaceDetails(details)
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!cancelled && !isAbortError(reason)) {
+          setPlaceDetailsError(toErrorMessage(reason))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsPlaceDetailsLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [selectedPlaceId, placeDetailsRequestVersion])
+
+  const handleOpenPlace = useCallback((cityId: string) => {
+    setSelectedPlaceId(cityId)
+  }, [])
 
   async function loadApplication(preferredTripId?: string) {
     setIsLoading(true)
@@ -227,9 +275,18 @@ export default function App() {
   function handleSelectTrip(tripId: string) {
     const nextTripId = selectedTripId === tripId ? null : tripId
     setError(null)
+    setSelectedPlaceId(null)
     setFormMode(null)
     setSelectedTrip(null)
     setSelectedTripId(nextTripId)
+  }
+
+  function handleViewTrip(tripId: string) {
+    setError(null)
+    setSelectedPlaceId(null)
+    setFormMode(null)
+    setSelectedTrip(null)
+    setSelectedTripId(tripId)
   }
 
   return (
@@ -243,7 +300,10 @@ export default function App() {
           isLoading={isLoading}
           selectedTripId={selectedTripId}
           trips={trips}
-          onCreate={() => setFormMode('create')}
+          onCreate={() => {
+            setSelectedPlaceId(null)
+            setFormMode('create')
+          }}
           onSelect={handleSelectTrip}
         />
         {formMode === 'create' ? (
@@ -309,7 +369,22 @@ export default function App() {
             </button>
           </div>
         ) : null}
-        <MapView overview={overview} selectedTrip={activeSelectedTrip} trips={trips} />
+        <MapView
+          overview={overview}
+          selectedTrip={activeSelectedTrip}
+          trips={trips}
+          onSelectPlace={handleOpenPlace}
+        />
+        {selectedTripId === null && selectedPlaceId ? (
+          <PlaceDetailsPanel
+            details={placeDetails}
+            error={placeDetailsError}
+            isLoading={isPlaceDetailsLoading}
+            onClose={() => setSelectedPlaceId(null)}
+            onRetry={() => setPlaceDetailsRequestVersion((version) => version + 1)}
+            onViewTrip={handleViewTrip}
+          />
+        ) : null}
       </div>
     </main>
   )
@@ -320,6 +395,10 @@ function toErrorMessage(reason: unknown): string {
     return reason.code ? `${reason.message} (${reason.code})` : reason.message
   }
   return reason instanceof Error ? reason.message : 'Something went wrong. Please try again.'
+}
+
+function isAbortError(reason: unknown): boolean {
+  return reason instanceof Error && reason.name === 'AbortError'
 }
 
 function replaceStop(stops: TripStop[], updatedStop: TripStop): TripStop[] {
