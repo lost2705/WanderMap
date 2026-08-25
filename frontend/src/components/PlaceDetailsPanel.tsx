@@ -1,11 +1,13 @@
 import type { PlaceDetails, PlaceVisit } from '../types/travel'
 import { formatCalendarDateRange, formatStopDateRange } from '../utils/calendarDate'
+import { hasMemoryContent, orderedMemoryPhotos } from './memoryPresentation'
 
 interface PlaceDetailsPanelProps {
   details: PlaceDetails | null
   error: string | null
   isLoading: boolean
   onClose: () => void
+  onViewMemory: (visit: PlaceVisit) => void
   onRetry: () => void
   onViewTrip: (tripId: string) => void
 }
@@ -17,6 +19,7 @@ export function PlaceDetailsPanel({
   error,
   isLoading,
   onClose,
+  onViewMemory,
   onRetry,
   onViewTrip,
 }: PlaceDetailsPanelProps) {
@@ -56,6 +59,7 @@ export function PlaceDetailsPanel({
                   cityName={details.city.name}
                   key={visit.stopId}
                   visit={visit}
+                  onViewMemory={onViewMemory}
                   onViewTrip={onViewTrip}
                 />
               ))}
@@ -70,15 +74,17 @@ export function PlaceDetailsPanel({
 function PlaceVisitCard({
   cityName,
   visit,
+  onViewMemory,
   onViewTrip,
 }: {
   cityName: string
   visit: PlaceVisit
+  onViewMemory: (visit: PlaceVisit) => void
   onViewTrip: (tripId: string) => void
 }) {
   const visitDates = formatStopDateRange(visit.arrivalDate, visit.departureDate)
     ?? formatCalendarDateRange(visit.tripStartDate, visit.tripEndDate)
-  const photos = [...visit.photos].sort((left, right) => left.position - right.position)
+  const photos = orderedMemoryPhotos(visit.photos)
   const visiblePhotos = photos.slice(0, MAX_VISIBLE_PHOTOS)
 
   return (
@@ -107,13 +113,24 @@ function PlaceVisitCard({
           ) : null}
         </div>
       ) : null}
-      <button
-        className="place-view-trip"
-        type="button"
-        onClick={() => onViewTrip(visit.tripId)}
-      >
-        View journey →
-      </button>
+      <div className="place-visit-actions">
+        {hasMemoryContent(visit) ? (
+          <button
+            className="place-view-memory"
+            type="button"
+            onClick={() => onViewMemory(visit)}
+          >
+            View memory →
+          </button>
+        ) : null}
+        <button
+          className="place-view-trip"
+          type="button"
+          onClick={() => onViewTrip(visit.tripId)}
+        >
+          View journey →
+        </button>
+      </div>
     </li>
   )
 }

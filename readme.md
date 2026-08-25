@@ -63,7 +63,7 @@ City autocomplete is mediated by the backend through the provider-neutral `Geoco
 
 Selecting a result sends its city name, ISO alpha-2 country code, latitude, and longitude to the existing stop endpoint. `TripService` persists those coordinates without depending on Photon DTOs. The previous `KnownCityLocationResolver` remains as a compatibility fallback for older coordinate-less API calls, and unknown coordinate-less cities remain valid itinerary entries without map markers.
 
-The map uses [MapLibre GL JS](https://maplibre.org/) with the token-free [OpenFreeMap](https://openfreemap.org/) Liberty base style. Country boundary overlays are fetched client-side from [Natural Earth](https://www.naturalearthdata.com/)'s `natural-earth-vector` GeoJSON dataset; Natural Earth data is public domain. Highlights use the stored country code and Natural Earth's `ISO_A2_EH` property, never display-name matching. Both map services need an internet connection when the visual frontend is open.
+The map uses [MapLibre GL JS](https://maplibre.org/) with the token-free [OpenFreeMap](https://openfreemap.org/) Liberty base style. Subtle country fills are fetched client-side from the versioned 1:50m [Natural Earth](https://www.naturalearthdata.com/) `natural-earth-vector` GeoJSON dataset and rendered as a native MapLibre layer below the base style's roads, administrative boundaries, and labels; Natural Earth data is public domain. Highlights use the stored country code and Natural Earth's `ISO_A2_EH` property, never display-name matching. Both map services need an internet connection when the visual frontend is open.
 
 ## API quick start
 

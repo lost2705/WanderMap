@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { THEMES, THEME_STORAGE_KEY } from './appearance/theme'
 import type { PlaceDetails, Trip, TripMapOverview, TripSummary } from './types/travel'
 
 vi.mock('./api/places', () => ({
@@ -222,13 +223,15 @@ const tokyoPlace: PlaceDetails = {
       position: 4,
       arrivalDate: null,
       departureDate: null,
-      note: null,
+      note: 'A rainy return to Tokyo years later.',
       photos: [],
     },
   ],
 }
 
 beforeEach(() => {
+  window.localStorage.clear()
+  delete document.documentElement.dataset.theme
   vi.mocked(listTrips).mockResolvedValue(tripSummaries)
   vi.mocked(getMapOverview).mockResolvedValue(overview)
   vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? italyTrip : japanTrip))
@@ -238,6 +241,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
+  window.localStorage.clear()
+  delete document.documentElement.dataset.theme
 })
 
 describe('App trip selection', () => {
@@ -397,6 +403,120 @@ describe('App trip selection', () => {
   })
 })
 
+describe('App responsive navigation', () => {
+  it('opens and closes the Journey surface without replacing the map', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const mapSurface = screen.getByTestId('map-state')
+    const navigation = screen.getByRole('complementary', { name: 'Journey navigation' })
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(openButton.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(openButton)
+
+    expect(navigation.classList.contains('is-open')).toBe(true)
+    expect(openButton.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close journey navigation' }))
+
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(openButton.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(openButton)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('keeps trip selection behavior available from the compact Journey navigation', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open journey navigation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+
+    await screen.findByRole('heading', { name: 'Japan 2026' })
+    expectMapState('japan', 'JP', 'japan')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+
+    await waitFor(() => expectMapState('global', '', 'italy,japan'))
+    expect(screen.getByText('Select a journey to open its travel timeline.')).toBeTruthy()
+  })
+
+  it('returns directly to the global atlas from the mobile World action', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return to world map' }))
+
+    await waitFor(() => expectMapState('global', '', 'italy,japan'))
+    expect(screen.queryByRole('button', { name: 'Return to world map' })).toBeNull()
+  })
+
+  it('isolates mobile background focus, traps Tab in the drawer, and restores focus after Escape', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const mapSurface = screen.getByTestId('map-state')
+    const navigation = screen.getByRole('complementary', { name: 'Journey navigation' })
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    const background = document.querySelector<HTMLElement>('.content-area')
+    openButton.focus()
+
+    fireEvent.click(openButton)
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close journey navigation' }))
+    expect(background?.hasAttribute('inert')).toBe(true)
+    expect(openButton.closest('[inert]')).toBe(background)
+
+    const lastDrawerControl = screen.getByRole('combobox', { name: 'Appearance' })
+    lastDrawerControl.focus()
+    fireEvent.keyDown(window, { key: 'Tab' })
+    expect(navigation.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).not.toBe(lastDrawerControl)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await waitFor(() => expect(document.activeElement).toBe(openButton))
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(background?.hasAttribute('inert')).toBe(false)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('restores mobile focus when the drawer Close button is used', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    openButton.focus()
+    fireEvent.click(openButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Close journey navigation' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(openButton))
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+  })
+
+  it('keeps the desktop sidebar non-modal and the single map surface available', async () => {
+    stubNavigationViewport(false)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const mapSurface = screen.getByTestId('map-state')
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    openButton.focus()
+    fireEvent.click(openButton)
+
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+    expect(document.activeElement).toBe(openButton)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+  })
+})
+
 describe('App global place details', () => {
   it('opens a global marker through loading and renders its place memories', async () => {
     const request = deferred<PlaceDetails>()
@@ -500,6 +620,50 @@ describe('App global place details', () => {
     expectMapState('japan', 'JP', 'japan')
   })
 
+  it('opens two visits to the same city as different stop memories', async () => {
+    render(<App />)
+    await openGlobalPlace('Tokyo')
+
+    const memoryButtons = screen.getAllByRole('button', { name: 'View memory →' })
+    expect(memoryButtons).toHaveLength(2)
+    fireEvent.click(memoryButtons[0]!)
+
+    expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id')).toBe('tokyo')
+    expect(screen.getByText('Morning light in Shinjuku.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to Tokyo/ }))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View memory →' })[1]!)
+    expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id'))
+      .toBe('tokyo-legacy')
+    expect(screen.getByText('A rainy return to Tokyo years later.')).toBeTruthy()
+  })
+
+  it('moves from Place Memories to Memory, back to Place, and into its Journey without remounting the map', async () => {
+    render(<App />)
+    const mapSurface = screen.getByTestId('map-state')
+    await openGlobalPlace('Rome')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View memory →' }))
+
+    expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id')).toBe('rome')
+    expect(screen.getByText('An evening walk through Trastevere.')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
+    expect(screen.getByRole('region', { name: 'Place details' })).toBeTruthy()
+    expect(getPlaceDetails).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'View memory →' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View journey' }))
+
+    expect(await screen.findByRole('heading', { name: 'Italy' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Memory view' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('italy', 'IT', 'italy')
+  })
+
   it('does not open place history from a selected-trip marker', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
@@ -512,11 +676,387 @@ describe('App global place details', () => {
   })
 })
 
+describe('App Journey memory navigation', () => {
+  it('opens a stop memory while retaining selected-trip state, then returns to Journey and World', async () => {
+    const journeyWithMemory: Trip = {
+      ...japanTrip,
+      stops: japanTrip.stops.map((stop) => ({ ...stop, note: 'Night walk through Shinjuku.' })),
+    }
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'japan' ? journeyWithMemory : italyTrip))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+    await screen.findByRole('heading', { name: 'Japan 2026' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+
+    expect(within(screen.getByRole('region', { name: 'Memory view' }))
+      .getByText('Night walk through Shinjuku.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open journey navigation' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('japan', 'JP', 'japan')
+
+    fireEvent.click(screen.getByRole('button', { name: /Back to Japan 2026/ }))
+    expect(screen.queryByRole('region', { name: 'Memory view' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Japan 2026' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+    fireEvent.click(screen.getByRole('button', { name: 'World' }))
+
+    expect(screen.queryByRole('region', { name: 'Memory view' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('global', '', 'italy,japan')
+  })
+
+  it('opens Place Memories from a Journey memory and ignores a stale prior Place response', async () => {
+    const journeyWithMemory: Trip = {
+      ...japanTrip,
+      stops: japanTrip.stops.map((stop) => ({ ...stop, note: 'Tokyo from the selected Journey.' })),
+    }
+    const staleRomeRequest = deferred<PlaceDetails>()
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'japan' ? journeyWithMemory : italyTrip))
+    vi.mocked(getPlaceDetails)
+      .mockReturnValueOnce(staleRomeRequest.promise)
+      .mockResolvedValueOnce(tokyoPlace)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open memories for Rome' }))
+    expect(screen.getByRole('status')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+    await screen.findByRole('heading', { name: 'Japan 2026' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+    expect(within(screen.getByRole('region', { name: 'Memory view' }))
+      .getByText('Tokyo from the selected Journey.')).toBeTruthy()
+
+    staleRomeRequest.resolve(romePlace)
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Memory view' }))
+      .getByText('Tokyo from the selected Journey.')).toBeTruthy())
+    expect(screen.queryByText('An evening walk through Trastevere.')).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View place' }))
+    expect(await screen.findByRole('region', { name: 'Place details' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Tokyo' })).toBeTruthy()
+    expectMapState('global', '', 'italy,japan')
+  })
+})
+
+describe('App Memory editing', () => {
+  it('updates a Journey-origin Memory in the selected TripStop cache without a refetch', async () => {
+    const journeyWithMemory: Trip = {
+      ...japanTrip,
+      stops: japanTrip.stops.map((stop) => ({ ...stop, note: 'Night walk through Shinjuku.' })),
+    }
+    const updatedStop = { ...journeyWithMemory.stops[0]!, note: 'Sunrise near Tsukiji.' }
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(
+      tripId === 'japan' ? journeyWithMemory : italyTrip,
+    ))
+    vi.mocked(updateStopJournal).mockResolvedValue(updatedStop)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+    await screen.findByRole('heading', { name: 'Japan 2026' })
+    const tripFetchesBeforeEdit = vi.mocked(getTrip).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'Sunrise near Tsukiji.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save memory' }))
+    expect(await screen.findByText('Sunrise near Tsukiji.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to Japan 2026/ }))
+
+    expect(screen.getByText('Sunrise near Tsukiji.')).toBeTruthy()
+    expect(getTrip).toHaveBeenCalledTimes(tripFetchesBeforeEdit)
+    expect(updateStopJournal).toHaveBeenCalledWith('japan', 'tokyo', expect.objectContaining({
+      note: 'Sunrise near Tsukiji.',
+    }))
+  })
+
+  it('saves the exact stop and keeps Memory, Place and Journey data synchronized', async () => {
+    const updatedStop = {
+      ...italyTrip.stops[0]!,
+      arrivalDate: '2026-05-04',
+      departureDate: '2026-05-07',
+      note: 'Rome after the summer rain.',
+      photos: romePlace.visits[0]!.photos,
+    }
+    let persistedItaly = italyTrip
+    vi.mocked(updateStopJournal).mockImplementation(async () => {
+      persistedItaly = { ...italyTrip, stops: [updatedStop] }
+      return updatedStop
+    })
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(
+      tripId === 'italy' ? persistedItaly : japanTrip,
+    ))
+    render(<App />)
+    await openGlobalMemory('Rome')
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    fireEvent.change(screen.getByLabelText('Arrival'), { target: { value: '2026-05-04' } })
+    fireEvent.change(screen.getByLabelText('Departure'), { target: { value: '2026-05-07' } })
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'Rome after the summer rain.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save memory' }))
+
+    expect(await screen.findByText('Rome after the summer rain.')).toBeTruthy()
+    expect(screen.queryByRole('form', { name: 'Edit memory for Rome' })).toBeNull()
+    expect(updateStopJournal).toHaveBeenCalledWith('italy', 'rome', {
+      arrivalDate: '2026-05-04',
+      departureDate: '2026-05-07',
+      note: 'Rome after the summer rain.',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
+    const placePanel = screen.getByRole('region', { name: 'Place details' })
+    expect(within(placePanel).getByText('Rome after the summer rain.')).toBeTruthy()
+    expect(within(placePanel).getByText('May 4, 2026 – May 7, 2026')).toBeTruthy()
+    fireEvent.click(within(placePanel).getByRole('button', { name: 'View memory →' }))
+    expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id')).toBe('rome')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View journey' }))
+    expect(await screen.findByRole('heading', { name: 'Italy' })).toBeTruthy()
+    expect(screen.getByText('Rome after the summer rain.')).toBeTruthy()
+    expect(screen.getByText('May 4, 2026 – May 7, 2026')).toBeTruthy()
+  })
+
+  it('uploads a photo in Memory edit mode and keeps the persisted change after Cancel', async () => {
+    const createdPhoto = {
+      id: 'rome-second',
+      originalFilename: 'Rome rain.jpg',
+      contentType: 'image/jpeg',
+      size: 321,
+      position: 2,
+      contentUrl: '/api/photos/rome-second',
+    }
+    vi.mocked(uploadStopPhoto).mockResolvedValue(createdPhoto)
+    render(<App />)
+    await openGlobalMemory('Rome')
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    const file = new File(['rain'], 'Rome rain.jpg', { type: 'image/jpeg' })
+
+    fireEvent.change(screen.getByLabelText('Add photo for Rome'), { target: { files: [file] } })
+
+    expect(await screen.findByRole('img', { name: 'Rome memory, photo 2' })).toBeTruthy()
+    expect(uploadStopPhoto).toHaveBeenCalledWith('italy', 'rome', file)
+    expect(screen.getAllByRole('img').map((image) => image.getAttribute('src')))
+      .toEqual([
+        '/api/trips/italy/stops/rome/photos/rome-memory/content',
+        '/api/photos/rome-second',
+      ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByRole('img', { name: 'Rome memory, photo 2' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
+    expect(screen.getByRole('img', { name: 'Rome memory from Italy, photo 2' })).toBeTruthy()
+  })
+
+  it('removes the final note and photo without leaving a ghost Memory', async () => {
+    let memoryCount = 1
+    let persistedItaly = {
+      ...italyTrip,
+      stops: [{ ...italyTrip.stops[0]!, note: romePlace.visits[0]!.note, photos: romePlace.visits[0]!.photos }],
+    }
+    vi.mocked(getMapOverview).mockImplementation(() => Promise.resolve({ ...overview, memoryCount }))
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(
+      tripId === 'italy' ? persistedItaly : japanTrip,
+    ))
+    vi.mocked(updateStopJournal).mockImplementation(async (_tripId, _stopId, input) => {
+      persistedItaly = {
+        ...persistedItaly,
+        stops: [{ ...persistedItaly.stops[0]!, ...input }],
+      }
+      return persistedItaly.stops[0]!
+    })
+    vi.mocked(deleteStopPhoto).mockImplementation(async () => {
+      memoryCount = 0
+      persistedItaly = {
+        ...persistedItaly,
+        stops: [{ ...persistedItaly.stops[0]!, photos: [] }],
+      }
+    })
+    render(<App />)
+    await openGlobalMemory('Rome')
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save memory' }))
+
+    await screen.findByRole('button', { name: /Edit$/ })
+    expect(screen.getByRole('img', { name: 'Rome memory, photo 1' })).toBeTruthy()
+    expect(screen.getByText('Memory', { selector: '[aria-current="page"]' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rome.jpg' }))
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'Rome memory, photo 1' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText('This visit does not have journal notes or photos yet.')).toBeTruthy()
+    expect(screen.getByText('Visit', { selector: '[aria-current="page"]' })).toBeTruthy()
+    expect(deleteStopPhoto).toHaveBeenCalledWith('italy', 'rome', 'rome-memory')
+    await waitFor(() => expect(screen.getByLabelText('Travel atlas summary').textContent)
+      .toBe('Places2Countries2Journeys2Memories0'))
+
+    fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
+    expect(screen.queryByRole('button', { name: 'View memory →' })).toBeNull()
+    expect(screen.getByText('Visited 1 time')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'View journey →' }))
+    expect(await screen.findByRole('heading', { name: 'Italy' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Open memory →' })).toBeNull()
+  })
+
+  it('keeps a note-only Memory after its final photo is removed', async () => {
+    vi.mocked(deleteStopPhoto).mockResolvedValue()
+    render(<App />)
+    await openGlobalMemory('Rome')
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rome.jpg' }))
+    await waitFor(() => expect(screen.queryByRole('img', { name: 'Rome memory, photo 1' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByText('An evening walk through Trastevere.')).toBeTruthy()
+    expect(screen.getByText('Memory', { selector: '[aria-current="page"]' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
+    expect(screen.getByRole('button', { name: 'View memory →' })).toBeTruthy()
+  })
+
+  it('does not let a late save for one repeated visit replace the newer Memory selection', async () => {
+    const saveRequest = deferred<Trip['stops'][number]>()
+    vi.mocked(updateStopJournal).mockReturnValueOnce(saveRequest.promise)
+    render(<App />)
+    await openGlobalPlace('Tokyo')
+    fireEvent.click(screen.getAllByRole('button', { name: 'View memory →' })[0]!)
+    fireEvent.click(screen.getByRole('button', { name: /Edit$/ }))
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'Updated first Tokyo visit.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save memory' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Back to Tokyo/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'View memory →' })[1]!)
+    expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id'))
+      .toBe('tokyo-legacy')
+
+    saveRequest.resolve({
+      ...japanTrip.stops[0]!,
+      note: 'Updated first Tokyo visit.',
+    })
+
+    await waitFor(() => expect(screen.getByRole('region', { name: 'Memory view' }).getAttribute('data-memory-id'))
+      .toBe('tokyo-legacy'))
+    expect(screen.getByText('A rainy return to Tokyo years later.')).toBeTruthy()
+    expect(screen.queryByText('Updated first Tokyo visit.')).toBeNull()
+    expect(updateStopJournal).toHaveBeenCalledWith('japan', 'tokyo', expect.objectContaining({
+      note: 'Updated first Tokyo visit.',
+    }))
+  })
+})
+
+describe('App appearance', () => {
+  it('defaults to Terracotta and selects every theme without changing the Journey or map surface', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+    const initialMapData = {
+      countries: mapSurface.getAttribute('data-countries'),
+      markers: mapSurface.getAttribute('data-markers'),
+      selectedTrip: mapSurface.getAttribute('data-selected-trip'),
+    }
+    const appearance = screen.getByRole('combobox', { name: 'Appearance' }) as HTMLSelectElement
+
+    expect(appearance.value).toBe('terracotta')
+    expect(document.documentElement.dataset.theme).toBe('terracotta')
+
+    THEMES.forEach(({ id }) => {
+      fireEvent.change(appearance, { target: { value: id } })
+      expect(appearance.value).toBe(id)
+      expect(document.documentElement.dataset.theme).toBe(id)
+    })
+
+    expect(screen.getByRole('button', { name: 'Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+    expect({
+      countries: mapSurface.getAttribute('data-countries'),
+      markers: mapSurface.getAttribute('data-markers'),
+      selectedTrip: mapSurface.getAttribute('data-selected-trip'),
+    }).toEqual(initialMapData)
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('midnight')
+  })
+
+  it('preserves an active Place while switching appearance', async () => {
+    render(<App />)
+    await openGlobalPlace('Rome')
+    const mapSurface = screen.getByTestId('map-state')
+    const placePanel = screen.getByRole('region', { name: 'Place details' })
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Appearance' }), { target: { value: 'ocean' } })
+
+    expect(document.documentElement.dataset.theme).toBe('ocean')
+    expect(screen.getByRole('region', { name: 'Place details' })).toBe(placePanel)
+    expect(screen.getByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('global', '', 'italy,japan')
+  })
+
+  it('preserves an active Memory and selected Journey while switching to Midnight', async () => {
+    const journeyWithMemory: Trip = {
+      ...japanTrip,
+      stops: japanTrip.stops.map((stop) => ({ ...stop, note: 'Night walk through Shinjuku.' })),
+    }
+    vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'japan' ? journeyWithMemory : italyTrip))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
+    await screen.findByRole('heading', { name: 'Japan 2026' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+    const memoryView = screen.getByRole('region', { name: 'Memory view' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Appearance' }), { target: { value: 'midnight' } })
+
+    expect(document.documentElement.dataset.theme).toBe('midnight')
+    expect(screen.getByRole('region', { name: 'Memory view' })).toBe(memoryView)
+    expect(within(memoryView).getByText('Night walk through Shinjuku.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('japan', 'JP', 'japan')
+  })
+})
+
 function expectMapState(selectedTrip: string, countries: string, markers: string) {
   const mapState = screen.getByTestId('map-state')
   expect(mapState.getAttribute('data-selected-trip')).toBe(selectedTrip)
   expect(mapState.getAttribute('data-countries')).toBe(countries)
   expect(mapState.getAttribute('data-markers')).toBe(markers)
+}
+
+async function openGlobalPlace(cityName: string) {
+  await screen.findByRole('heading', { name: 'Italy' })
+  fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+  fireEvent.click(screen.getByRole('button', { name: `Open memories for ${cityName}` }))
+  await screen.findByRole('heading', { name: cityName })
+}
+
+async function openGlobalMemory(cityName: string) {
+  await openGlobalPlace(cityName)
+  fireEvent.click(screen.getByRole('button', { name: 'View memory →' }))
+  await screen.findByRole('region', { name: 'Memory view' })
+}
+
+function stubNavigationViewport(matches: boolean) {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches,
+    media: '(max-width: 820px)',
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  })))
 }
 
 function deferred<T>() {

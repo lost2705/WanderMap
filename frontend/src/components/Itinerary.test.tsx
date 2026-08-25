@@ -181,6 +181,17 @@ describe('Itinerary journal', () => {
     expect(screen.getByLabelText('Stop 2').textContent).toBe('02')
   })
 
+  it('opens the exact stop memory without adding actions to stops without memory content', () => {
+    const onOpenMemory = vi.fn()
+    renderItinerary(vi.fn(), vi.fn(), vi.fn(), journalTrip, undefined, undefined, onOpenMemory)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open memory →' }))
+
+    expect(onOpenMemory).toHaveBeenCalledWith('tokyo-stop')
+    expect(screen.getAllByRole('button', { name: 'Open memory →' })).toHaveLength(1)
+    expect(screen.getByText('Kyoto').closest('.stop-item')?.querySelector('.stop-memory-link')).toBeNull()
+  })
+
   it('renders photo thumbnails in deterministic position order', () => {
     renderItinerary(vi.fn(), vi.fn(), vi.fn(), journalTrip)
 
@@ -299,6 +310,7 @@ function renderItinerary(
   selectedTrip: Trip = trip,
   onUploadPhoto: (stopId: string, file: File) => Promise<void> = () => Promise.resolve(),
   onDeletePhoto: (stopId: string, photoId: string) => Promise<void> = () => Promise.resolve(),
+  onOpenMemory: (stopId: string) => void = () => undefined,
 ) {
   render(
     <Itinerary
@@ -311,6 +323,7 @@ function renderItinerary(
       onUpdateJournal={onUpdateJournal}
       onUploadPhoto={onUploadPhoto}
       onDeletePhoto={onDeletePhoto}
+      onOpenMemory={onOpenMemory}
     />,
   )
 }

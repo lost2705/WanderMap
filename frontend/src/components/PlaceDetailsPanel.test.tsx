@@ -66,6 +66,7 @@ describe('PlaceDetailsPanel', () => {
       .toEqual(['/photos/1', '/photos/2', '/photos/3'])
     expect(screen.getByText('+1')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Legacy Japan trip' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'View memory →' })).toHaveLength(1)
     expect(screen.queryByText('No notes')).toBeNull()
     expect(screen.queryByText('No photos')).toBeNull()
     expect(screen.queryByText('No date')).toBeNull()
@@ -73,6 +74,7 @@ describe('PlaceDetailsPanel', () => {
 
   it('calls close, retry and the selected visit trip actions', () => {
     const onClose = vi.fn()
+    const onViewMemory = vi.fn()
     const onRetry = vi.fn()
     const onViewTrip = vi.fn()
     const { rerender } = render(
@@ -81,15 +83,18 @@ describe('PlaceDetailsPanel', () => {
         error={null}
         isLoading={false}
         onClose={onClose}
+        onViewMemory={onViewMemory}
         onRetry={onRetry}
         onViewTrip={onViewTrip}
       />,
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View memory →' }))
     fireEvent.click(screen.getAllByRole('button', { name: 'View journey →' })[1]!)
 
     expect(onClose).toHaveBeenCalledOnce()
+    expect(onViewMemory).toHaveBeenCalledWith(details.visits[0])
     expect(onViewTrip).toHaveBeenCalledWith('legacy')
 
     rerender(
@@ -98,6 +103,7 @@ describe('PlaceDetailsPanel', () => {
         error="The place could not be loaded."
         isLoading={false}
         onClose={onClose}
+        onViewMemory={onViewMemory}
         onRetry={onRetry}
         onViewTrip={onViewTrip}
       />,
@@ -121,6 +127,7 @@ function renderPanel(place: PlaceDetails) {
       error={null}
       isLoading={false}
       onClose={() => undefined}
+      onViewMemory={() => undefined}
       onRetry={() => undefined}
       onViewTrip={() => undefined}
     />,

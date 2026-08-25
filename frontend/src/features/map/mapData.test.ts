@@ -165,8 +165,8 @@ describe('map data', () => {
     ))
     const geoJson = routeFeatureCollection(routes)
     expect(geoJson.type).toBe('FeatureCollection')
-    expect(geoJson.features.map((feature) => feature.properties.color))
-      .toEqual(routes.map((route) => route.color))
+    expect(geoJson.features.map((feature) => feature.properties.identityColor))
+      .toEqual(routes.map((route) => route.identityColor))
     expect(geoJson.features[0]?.geometry.coordinates[0]).toEqual([12.4964, 41.9028])
   })
 

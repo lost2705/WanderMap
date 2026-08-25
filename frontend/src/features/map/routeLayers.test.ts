@@ -8,19 +8,21 @@ import {
   ROUTE_SOURCE_ID,
   ensureTripRouteLayers,
   removeTripRouteLayers,
+  updateTripRouteColor,
   updateTripRouteData,
 } from './routeLayers'
 
 const sourceSetData = vi.fn()
 const sources = new Map<string, { setData: typeof sourceSetData }>()
-const layers = new Map<string, { id: string }>()
+const layers = new Map<string, { id: string; paint?: Record<string, unknown> }>()
 const fakeMap = {
-  addLayer: vi.fn((layer: { id: string }) => layers.set(layer.id, layer)),
+  addLayer: vi.fn((layer: { id: string; paint?: Record<string, unknown> }) => layers.set(layer.id, layer)),
   addSource: vi.fn((id: string) => sources.set(id, { setData: sourceSetData })),
   getLayer: vi.fn((id: string) => layers.get(id)),
   getSource: vi.fn((id: string) => sources.get(id)),
   removeLayer: vi.fn((id: string) => layers.delete(id)),
   removeSource: vi.fn((id: string) => sources.delete(id)),
+  setPaintProperty: vi.fn(),
 } as unknown as MapLibreMap
 
 beforeEach(() => {
@@ -42,12 +44,32 @@ describe('trip route layers', () => {
     expect(fakeMap.addLayer).toHaveBeenCalledTimes(2)
     expect(layers.has(ROUTE_CASING_LAYER_ID)).toBe(true)
     expect(layers.has(ROUTE_LINE_LAYER_ID)).toBe(true)
+    expect(layers.get(ROUTE_LINE_LAYER_ID)?.paint?.['line-color']).toEqual(['get', 'identityColor'])
 
     removeTripRouteLayers(fakeMap)
     removeTripRouteLayers(fakeMap)
 
     expect(fakeMap.removeLayer).toHaveBeenCalledTimes(2)
     expect(fakeMap.removeSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates selected-route presentation color without recreating its source or layers', () => {
+    updateTripRouteColor(fakeMap, '#bd5426')
+    expect(fakeMap.setPaintProperty).not.toHaveBeenCalled()
+
+    ensureTripRouteLayers(fakeMap)
+    updateTripRouteColor(fakeMap, '#f09a68')
+
+    expect(fakeMap.setPaintProperty).toHaveBeenCalledWith(ROUTE_LINE_LAYER_ID, 'line-color', '#f09a68')
+    expect(fakeMap.addSource).toHaveBeenCalledTimes(1)
+    expect(fakeMap.addLayer).toHaveBeenCalledTimes(2)
+
+    updateTripRouteColor(fakeMap, null)
+    expect(fakeMap.setPaintProperty).toHaveBeenLastCalledWith(
+      ROUTE_LINE_LAYER_ID,
+      'line-color',
+      ['get', 'identityColor'],
+    )
   })
 
   it('clears global routes across global, Italy, Japan, and global transitions', () => {

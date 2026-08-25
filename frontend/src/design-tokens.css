@@ -1,3 +1,15 @@
+:root {
+  --font-editorial: Georgia, 'Times New Roman', serif;
+  --font-interface: Inter, Avenir, 'Segoe UI', Helvetica, Arial, sans-serif;
+
+  --radius-small: 0.45rem;
+  --radius-medium: 0.72rem;
+  --radius-large: 1rem;
+  --sidebar-width: clamp(20rem, 26vw, 23rem);
+  --color-map-marker-label: #fff;
+  --filter-map-control-icon: none;
+}
+
 :root,
 :root[data-theme='terracotta'] {
   color-scheme: light;
@@ -6,33 +18,284 @@
   --color-surface: #fffdf8;
   --color-surface-muted: #f8f4eb;
   --color-surface-raised: rgb(255 253 248 / 94%);
+  --color-surface-elevated: var(--color-surface-raised);
   --color-text-primary: #173042;
-  --color-text-secondary: #6f7d82;
-  --color-text-subtle: #8e9797;
-  --color-accent: #c45b2c;
+  --color-text-secondary: #68777c;
+  --color-text-subtle: #68777c;
+  --color-accent: #b54d23;
   --color-accent-strong: #9f431d;
   --color-accent-soft: #f4e2d5;
+  --color-on-accent: #fffdf8;
   --color-sage: #789b87;
-  --color-sage-strong: #547664;
+  --color-sage-strong: #4b6d5b;
   --color-sage-soft: #e4eee7;
   --color-sand: #d8c39a;
   --color-border: #ddd7cb;
   --color-border-strong: #c8c0b2;
+  --color-glass-border: rgb(255 255 255 / 72%);
   --color-danger: #a8472d;
   --color-danger-soft: #f8e4dc;
+  --color-error-border: #e7b8a8;
+  --color-error-surface: #fff4ef;
   --color-focus: #995027;
+  --color-timeline-fade: rgb(216 195 154 / 30%);
+  --color-photo-control: rgb(23 48 66 / 78%);
+  --color-photo-control-border: rgb(255 255 255 / 65%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #cddde0;
+  --color-map-marker: #bd5426;
+  --color-map-marker-border: #fffdf8;
+  --color-map-marker-ring: rgb(255 253 248 / 58%);
   --color-map-route: #bd5426;
   --color-map-country-fill: #df8a5f;
   --color-map-country-line: #98441f;
+  --filter-map-canvas: saturate(0.72) sepia(0.08) brightness(1.04) contrast(0.94);
 
-  --font-editorial: Georgia, 'Times New Roman', serif;
-  --font-interface: Inter, Avenir, 'Segoe UI', Helvetica, Arial, sans-serif;
-
-  --radius-small: 0.45rem;
-  --radius-medium: 0.72rem;
-  --radius-large: 1rem;
+  --shadow-brand: 0 4px 12px rgb(104 63 42 / 18%);
+  --shadow-selected: 0 5px 18px rgb(74 57 43 / 7%);
   --shadow-soft: 0 8px 28px rgb(35 43 39 / 9%);
   --shadow-raised: 0 18px 48px rgb(23 48 66 / 17%);
+  --shadow-marker: 0 2px 8px rgb(23 48 66 / 32%);
+  --shadow-marker-strong: 0 3px 12px rgb(18 50 66 / 44%);
+}
 
-  --sidebar-width: clamp(20rem, 26vw, 23rem);
+:root[data-theme='sage'] {
+  color-scheme: light;
+
+  --color-canvas: #f0f1e8;
+  --color-surface: #fbfcf6;
+  --color-surface-muted: #f3f5ed;
+  --color-surface-raised: rgb(251 252 246 / 94%);
+  --color-surface-elevated: var(--color-surface-raised);
+  --color-text-primary: #20372f;
+  --color-text-secondary: #5f7069;
+  --color-text-subtle: #5f7069;
+  --color-accent: #567765;
+  --color-accent-strong: #3f6351;
+  --color-accent-soft: #dfe9e1;
+  --color-on-accent: #fffdf8;
+  --color-sage: #6f927e;
+  --color-sage-strong: #486b58;
+  --color-sage-soft: #e1ebe3;
+  --color-sand: #c9bea1;
+  --color-border: #d7d9ce;
+  --color-border-strong: #bbc3b7;
+  --color-glass-border: rgb(255 255 255 / 72%);
+  --color-danger: #a64b38;
+  --color-danger-soft: #f5e3dc;
+  --color-error-border: #dfb7aa;
+  --color-error-surface: #fff5f0;
+  --color-focus: #426b56;
+  --color-timeline-fade: rgb(201 190 161 / 34%);
+  --color-photo-control: rgb(27 50 42 / 80%);
+  --color-photo-control-border: rgb(255 255 255 / 65%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #ccd9d3;
+  --color-map-marker: #4f775f;
+  --color-map-marker-border: #fbfcf6;
+  --color-map-marker-ring: rgb(251 252 246 / 62%);
+  --color-map-route: #4f775f;
+  --color-map-country-fill: #7fa18b;
+  --color-map-country-line: #496b58;
+  --filter-map-canvas: saturate(0.68) sepia(0.08) hue-rotate(350deg) brightness(1.02) contrast(0.95);
+
+  --shadow-brand: 0 4px 12px rgb(51 77 62 / 18%);
+  --shadow-selected: 0 5px 18px rgb(49 72 59 / 9%);
+  --shadow-soft: 0 8px 28px rgb(40 57 48 / 10%);
+  --shadow-raised: 0 18px 48px rgb(34 55 45 / 18%);
+  --shadow-marker: 0 2px 8px rgb(31 55 45 / 34%);
+  --shadow-marker-strong: 0 3px 12px rgb(28 56 43 / 44%);
+}
+
+:root[data-theme='ocean'] {
+  color-scheme: light;
+
+  --color-canvas: #edf2f1;
+  --color-surface: #fbfcfa;
+  --color-surface-muted: #f1f5f4;
+  --color-surface-raised: rgb(251 252 250 / 94%);
+  --color-surface-elevated: var(--color-surface-raised);
+  --color-text-primary: #173647;
+  --color-text-secondary: #607580;
+  --color-text-subtle: #607580;
+  --color-accent: #2e687a;
+  --color-accent-strong: #1c5062;
+  --color-accent-soft: #dcebee;
+  --color-on-accent: #fff;
+  --color-sage: #6f928a;
+  --color-sage-strong: #4c7069;
+  --color-sage-soft: #e1ece9;
+  --color-sand: #c8b99b;
+  --color-border: #d4dddc;
+  --color-border-strong: #b8c8c8;
+  --color-glass-border: rgb(255 255 255 / 72%);
+  --color-danger: #a7493a;
+  --color-danger-soft: #f5e3de;
+  --color-error-border: #dfb8ad;
+  --color-error-surface: #fff5f1;
+  --color-focus: #245e70;
+  --color-timeline-fade: rgb(200 185 155 / 32%);
+  --color-photo-control: rgb(20 52 67 / 80%);
+  --color-photo-control-border: rgb(255 255 255 / 65%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #c8dbe0;
+  --color-map-marker: #245e72;
+  --color-map-marker-border: #fbfcfa;
+  --color-map-marker-ring: rgb(251 252 250 / 62%);
+  --color-map-route: #245e72;
+  --color-map-country-fill: #5f92a1;
+  --color-map-country-line: #2c6577;
+  --filter-map-canvas: saturate(0.7) sepia(0.03) hue-rotate(350deg) brightness(1.01) contrast(0.96);
+
+  --shadow-brand: 0 4px 12px rgb(32 75 91 / 18%);
+  --shadow-selected: 0 5px 18px rgb(35 71 83 / 9%);
+  --shadow-soft: 0 8px 28px rgb(31 53 60 / 10%);
+  --shadow-raised: 0 18px 48px rgb(24 52 64 / 18%);
+  --shadow-marker: 0 2px 8px rgb(24 53 66 / 34%);
+  --shadow-marker-strong: 0 3px 12px rgb(18 49 65 / 46%);
+}
+
+:root[data-theme='lavender'] {
+  color-scheme: light;
+
+  --color-canvas: #f3eff2;
+  --color-surface: #fffdfb;
+  --color-surface-muted: #f7f3f7;
+  --color-surface-raised: rgb(255 253 251 / 94%);
+  --color-surface-elevated: var(--color-surface-raised);
+  --color-text-primary: #302d42;
+  --color-text-secondary: #6f697a;
+  --color-text-subtle: #6f697a;
+  --color-accent: #76648b;
+  --color-accent-strong: #59496f;
+  --color-accent-soft: #eae3ef;
+  --color-on-accent: #fff;
+  --color-sage: #78948a;
+  --color-sage-strong: #506b61;
+  --color-sage-soft: #e4ece8;
+  --color-sand: #cdbb9d;
+  --color-border: #ddd6dd;
+  --color-border-strong: #c6bbc8;
+  --color-glass-border: rgb(255 255 255 / 72%);
+  --color-danger: #a54842;
+  --color-danger-soft: #f5e2df;
+  --color-error-border: #dfb5b0;
+  --color-error-surface: #fff4f1;
+  --color-focus: #66527d;
+  --color-timeline-fade: rgb(205 187 157 / 32%);
+  --color-photo-control: rgb(48 42 64 / 80%);
+  --color-photo-control-border: rgb(255 255 255 / 65%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #d4d4dd;
+  --color-map-marker: #6d5a84;
+  --color-map-marker-border: #fffdfb;
+  --color-map-marker-ring: rgb(255 253 251 / 62%);
+  --color-map-route: #6d5a84;
+  --color-map-country-fill: #9787aa;
+  --color-map-country-line: #655477;
+  --filter-map-canvas: saturate(0.62) sepia(0.04) hue-rotate(5deg) brightness(1.01) contrast(0.95);
+
+  --shadow-brand: 0 4px 12px rgb(78 60 94 / 18%);
+  --shadow-selected: 0 5px 18px rgb(64 50 76 / 9%);
+  --shadow-soft: 0 8px 28px rgb(53 45 59 / 10%);
+  --shadow-raised: 0 18px 48px rgb(48 39 61 / 18%);
+  --shadow-marker: 0 2px 8px rgb(49 41 64 / 34%);
+  --shadow-marker-strong: 0 3px 12px rgb(45 36 61 / 46%);
+}
+
+:root[data-theme='burgundy'] {
+  color-scheme: light;
+
+  --color-canvas: #f4eee7;
+  --color-surface: #fffaf6;
+  --color-surface-muted: #f8f1ec;
+  --color-surface-raised: rgb(255 250 246 / 94%);
+  --color-surface-elevated: var(--color-surface-raised);
+  --color-text-primary: #352b33;
+  --color-text-secondary: #75686c;
+  --color-text-subtle: #75686c;
+  --color-accent: #833c4d;
+  --color-accent-strong: #672b3a;
+  --color-accent-soft: #eedde1;
+  --color-on-accent: #fffaf6;
+  --color-sage: #7e9482;
+  --color-sage-strong: #566b5a;
+  --color-sage-soft: #e6ece5;
+  --color-sand: #d2ba95;
+  --color-border: #dfd4ce;
+  --color-border-strong: #c9bab3;
+  --color-glass-border: rgb(255 255 255 / 72%);
+  --color-danger: #a23d32;
+  --color-danger-soft: #f4dfda;
+  --color-error-border: #ddb2a9;
+  --color-error-surface: #fff3ef;
+  --color-focus: #773445;
+  --color-timeline-fade: rgb(210 186 149 / 32%);
+  --color-photo-control: rgb(53 37 45 / 80%);
+  --color-photo-control-border: rgb(255 255 255 / 65%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #d8d4d3;
+  --color-map-marker: #7a3344;
+  --color-map-marker-border: #fffaf6;
+  --color-map-marker-ring: rgb(255 250 246 / 62%);
+  --color-map-route: #7a3344;
+  --color-map-country-fill: #a36570;
+  --color-map-country-line: #713040;
+  --filter-map-canvas: saturate(0.64) sepia(0.09) hue-rotate(322deg) brightness(1.01) contrast(0.95);
+
+  --shadow-brand: 0 4px 12px rgb(91 40 53 / 18%);
+  --shadow-selected: 0 5px 18px rgb(79 43 51 / 9%);
+  --shadow-soft: 0 8px 28px rgb(59 43 47 / 10%);
+  --shadow-raised: 0 18px 48px rgb(61 34 42 / 18%);
+  --shadow-marker: 0 2px 8px rgb(56 34 43 / 34%);
+  --shadow-marker-strong: 0 3px 12px rgb(58 29 40 / 46%);
+}
+
+:root[data-theme='midnight'] {
+  color-scheme: dark;
+
+  --color-canvas: #101a24;
+  --color-surface: #17232d;
+  --color-surface-muted: #1d2b36;
+  --color-surface-raised: rgb(23 35 45 / 95%);
+  --color-surface-elevated: var(--color-surface-raised);
+  --color-text-primary: #f3ede2;
+  --color-text-secondary: #bdc6c7;
+  --color-text-subtle: #95a2a5;
+  --color-accent: #d5845b;
+  --color-accent-strong: #f0aa82;
+  --color-accent-soft: #3b2c2c;
+  --color-on-accent: #101a24;
+  --color-sage: #82a692;
+  --color-sage-strong: #b1c8ba;
+  --color-sage-soft: #243a35;
+  --color-sand: #b8a27b;
+  --color-border: #354550;
+  --color-border-strong: #52636d;
+  --color-glass-border: rgb(255 255 255 / 12%);
+  --color-danger: #ff9a84;
+  --color-danger-soft: #3c282a;
+  --color-error-border: #75483f;
+  --color-error-surface: #352528;
+  --color-focus: #f2b07e;
+  --color-timeline-fade: rgb(184 162 123 / 30%);
+  --color-photo-control: rgb(7 15 21 / 84%);
+  --color-photo-control-border: rgb(255 255 255 / 28%);
+  --color-photo-control-text: #fff;
+  --color-map-canvas: #20333e;
+  --color-map-marker: #f09a68;
+  --color-map-marker-border: #f3ede2;
+  --color-map-marker-ring: rgb(243 237 226 / 48%);
+  --color-map-route: #f09a68;
+  --color-map-country-fill: #e18a62;
+  --color-map-country-line: #ffc09c;
+  --filter-map-canvas: saturate(0.58) sepia(0.08) brightness(0.62) contrast(1.08);
+  --filter-map-control-icon: invert(0.92) sepia(0.08);
+
+  --shadow-brand: 0 4px 14px rgb(0 0 0 / 32%);
+  --shadow-selected: 0 6px 20px rgb(0 0 0 / 22%);
+  --shadow-soft: 0 10px 30px rgb(0 0 0 / 28%);
+  --shadow-raised: 0 20px 52px rgb(0 0 0 / 42%);
+  --shadow-marker: 0 2px 9px rgb(0 0 0 / 54%);
+  --shadow-marker-strong: 0 3px 13px rgb(0 0 0 / 66%);
 }
