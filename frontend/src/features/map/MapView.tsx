@@ -3,8 +3,15 @@ import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
 import type { Trip, TripMapOverview, TripSummary } from '../../types/travel'
 import {
+  ensureCountryHighlightLayer,
+  isCountryBoundaryData,
+  removeCountryHighlightLayer,
+  updateCountryHighlightColor,
+  updateCountryHighlightFilter,
+} from './countryHighlightLayers'
+import type { CountryBoundaryData } from './countryHighlightLayers'
+import {
   countryCodesForMap,
-  countryFeatureFilter,
   markerOffsetsForScreenCollisions,
   markerScreenKey,
   markersForMap,
@@ -17,11 +24,10 @@ import { ensureTripRouteLayers, removeTripRouteLayers, updateTripRouteData } fro
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const COUNTRY_BOUNDARIES_URL =
-  'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson'
+  'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_admin_0_countries.geojson'
 const WORLD_OVERVIEW_BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 85]]
 const WORLD_OVERVIEW_PADDING = 28
-const COUNTRY_FILL = 'var(--color-map-country-fill)'
-const COUNTRY_LINE = 'var(--color-map-country-line)'
+const DEFAULT_COUNTRY_FILL = '#df8a5f'
 
 interface MapViewProps {
   overview: TripMapOverview | null
@@ -30,25 +36,10 @@ interface MapViewProps {
   onSelectPlace: (cityId: string) => void
 }
 
-interface CountryBoundaryData {
-  type: 'FeatureCollection'
-  features: CountryBoundaryFeature[]
-}
-
 interface MapMarkerReference {
   data: ReturnType<typeof markersForMap>[number]
   marker: Marker
 }
-
-interface CountryBoundaryFeature {
-  type: 'Feature'
-  properties: Record<string, unknown> | null
-  geometry: CountryGeometry
-}
-
-type CountryGeometry =
-  | { type: 'Polygon'; coordinates: number[][][] }
-  | { type: 'MultiPolygon'; coordinates: number[][][][] }
 
 export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
@@ -56,14 +47,11 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
   const markerRefs = useRef<MapMarkerReference[]>([])
   const selectedTripRef = useRef(selectedTrip)
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
-  const [mapAccentColor, setMapAccentColor] = useState<string | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
-  const [countryOverlayPaths, setCountryOverlayPaths] = useState<string[]>([])
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
   const displayMarkers = markersForMap(overview, selectedTrip?.id ?? null)
-  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip)
-    .map((route) => ({ ...route, color: mapAccentColor ?? route.color })))
+  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip))
   const routeDataKey = JSON.stringify(routeData)
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
   const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)
@@ -72,19 +60,6 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
   useEffect(() => {
     selectedTripRef.current = selectedTrip
   }, [selectedTrip])
-
-  useEffect(() => {
-    const readThemeAccent = () => {
-      const accent = window.getComputedStyle(document.documentElement)
-        .getPropertyValue('--color-map-route')
-        .trim()
-      setMapAccentColor(accent || null)
-    }
-    readThemeAccent()
-    const observer = new MutationObserver(readThemeAccent)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -162,19 +137,37 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       return
     }
 
-    const renderCountryOverlay = () => {
-      setCountryOverlayPaths(countryPathsForMap(map, countryBoundaryData, visitedCountryCodes))
-    }
-
-    renderCountryOverlay()
-    map.on('move', renderCountryOverlay)
-    map.on('resize', renderCountryOverlay)
+    ensureCountryHighlightLayer(map, countryBoundaryData, visitedCountryCodes, countryFillColor())
 
     return () => {
-      map.off('move', renderCountryOverlay)
-      map.off('resize', renderCountryOverlay)
+      if (mapRef.current === map) {
+        removeCountryHighlightLayer(map)
+      }
     }
-  }, [readyMap, countryBoundaryData, visitedCountryCodesKey])
+  }, [readyMap, countryBoundaryData])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    updateCountryHighlightFilter(map, visitedCountryCodes)
+  }, [readyMap, visitedCountryCodesKey])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map || !countryBoundaryData) {
+      return
+    }
+
+    const applyThemeColor = () => updateCountryHighlightColor(map, countryFillColor())
+    applyThemeColor()
+    const observer = new MutationObserver(applyThemeColor)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+
+    return () => observer.disconnect()
+  }, [readyMap, countryBoundaryData])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -212,7 +205,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
     const markers = displayMarkers
       .map((data): MapMarkerReference => ({
         data,
-        marker: createMarker(data, tripNames, onSelectPlace, mapAccentColor).addTo(map),
+        marker: createMarker(data, tripNames, onSelectPlace).addTo(map),
       }))
     const updateMarkerOffsets = () => {
       const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
@@ -242,7 +235,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
         markerRefs.current = []
       }
     }
-  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace, mapAccentColor])
+  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -281,19 +274,6 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
           : `${displayMarkers.length} ${displayMarkers.length === 1 ? 'place' : 'places'} visited`}</p>
       </div>
       <div className="map-canvas" ref={mapElementRef} />
-      <svg aria-hidden="true" className="country-overlay">
-        {countryOverlayPaths.map((path) => (
-          <path
-            d={path}
-            fill={COUNTRY_FILL}
-            fillOpacity={0.52}
-            fillRule="evenodd"
-            key={path}
-            stroke={COUNTRY_LINE}
-            strokeWidth={1.75}
-          />
-        ))}
-      </svg>
       {!selectedTrip && overview && overview.markers.length > 0 ? (
         <p className="map-hint">Choose a journey to trace its story across the map.</p>
       ) : null}
@@ -303,40 +283,6 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
 
 function activeReadyMap(readyMap: maplibregl.Map | null, currentMap: maplibregl.Map | null): maplibregl.Map | null {
   return readyMap === currentMap ? readyMap : null
-}
-
-function countryPathsForMap(map: maplibregl.Map, countryBoundaryData: CountryBoundaryData, countryCodes: string[]): string[] {
-  const filter = countryFeatureFilter(countryCodes)
-  return countryBoundaryData.features
-    .filter((feature) => matchesCountryFilter(feature, filter))
-    .flatMap((feature) => geometryPaths(map, feature.geometry))
-}
-
-function matchesCountryFilter(
-  feature: CountryBoundaryFeature,
-  filter: ReturnType<typeof countryFeatureFilter>,
-): boolean {
-  if (filter[0] === '==') {
-    return false
-  }
-
-  return filter[2].includes(String(feature.properties?.ISO_A2_EH ?? ''))
-}
-
-function geometryPaths(map: maplibregl.Map, geometry: CountryGeometry): string[] {
-  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates
-  return polygons.map((polygon) => polygonPath(map, polygon))
-}
-
-function polygonPath(map: maplibregl.Map, polygon: number[][][]): string {
-  return polygon.map((ring) => ringPath(map, ring)).join(' ')
-}
-
-function ringPath(map: maplibregl.Map, ring: number[][]): string {
-  return ring.map(([longitude, latitude], index) => {
-    const point = map.project([longitude, latitude])
-    return `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`
-  }).join(' ') + 'Z'
 }
 
 async function fetchCountryBoundaries(signal: AbortSignal): Promise<CountryBoundaryData> {
@@ -352,42 +298,17 @@ async function fetchCountryBoundaries(signal: AbortSignal): Promise<CountryBound
   return data
 }
 
-function isCountryBoundaryData(data: unknown): data is CountryBoundaryData {
-  return typeof data === 'object'
-    && data !== null
-    && (data as { type?: unknown }).type === 'FeatureCollection'
-    && Array.isArray((data as { features?: unknown }).features)
-    && (data as { features: unknown[] }).features.every(isCountryBoundaryFeature)
-}
-
-function isCountryBoundaryFeature(feature: unknown): feature is CountryBoundaryFeature {
-  return typeof feature === 'object'
-    && feature !== null
-    && (feature as { type?: unknown }).type === 'Feature'
-    && isCountryGeometry((feature as { geometry?: unknown }).geometry)
-    && ((feature as { properties?: unknown }).properties === null
-      || typeof (feature as { properties?: unknown }).properties === 'object')
-}
-
-function isCountryGeometry(geometry: unknown): geometry is CountryGeometry {
-  return typeof geometry === 'object'
-    && geometry !== null
-    && ((geometry as { type?: unknown }).type === 'Polygon' || (geometry as { type?: unknown }).type === 'MultiPolygon')
-    && Array.isArray((geometry as { coordinates?: unknown }).coordinates)
-}
-
 function createMarker(
   marker: ReturnType<typeof markersForMap>[number],
   tripNames: Map<string, string>,
   onSelectPlace: (cityId: string) => void,
-  mapAccentColor: string | null,
 ): Marker {
   const element = document.createElement('button')
   element.className = marker.mode === 'global-place'
     ? 'map-marker is-place'
     : 'map-marker is-itinerary is-selected'
   element.type = 'button'
-  element.style.setProperty('--trip-color', mapAccentColor ?? marker.color)
+  element.style.setProperty('--trip-color', marker.color)
   element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
   element.textContent = marker.markerLabel ?? ''
 
@@ -444,6 +365,11 @@ function popupLine(text: string): HTMLSpanElement {
   const line = document.createElement('span')
   line.textContent = text
   return line
+}
+
+function countryFillColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--color-map-country-fill').trim()
+    || DEFAULT_COUNTRY_FILL
 }
 
 function updateWorldViewport(map: maplibregl.Map, moveCamera: boolean) {

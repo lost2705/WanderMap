@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from './api/client'
 import { getPlaceDetails } from './api/places'
+import { applyTheme, initializeTheme, persistTheme } from './appearance/theme'
+import type { Theme } from './appearance/theme'
 import {
   addStop,
   createTrip,
@@ -15,14 +17,19 @@ import {
   updateTrip,
   uploadStopPhoto,
 } from './api/trips'
+import { AppearanceControl } from './components/AppearanceControl'
 import { Itinerary } from './components/Itinerary'
+import { MemoryView } from './components/MemoryView'
 import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
+import { orderedMemoryPhotos, visitForTripStop } from './components/memoryPresentation'
 import { MapView } from './features/map/MapView'
 import type {
+  City,
   CitySearchResult,
   PlaceDetails,
+  PlaceVisit,
   StopJournalInput,
   Trip,
   TripDetailsInput,
@@ -34,12 +41,28 @@ import type {
 
 type TripFormMode = 'create' | 'edit' | null
 
-export default function App() {
+interface AppProps {
+  initialTheme?: Theme
+}
+
+type AtlasView =
+  | { kind: 'map' }
+  | { kind: 'place'; cityId: string }
+  | {
+      kind: 'memory'
+      cityId: string
+      stopId: string
+      tripId: string
+      origin: 'place' | 'journey'
+    }
+
+export default function App({ initialTheme }: AppProps) {
+  const [theme, setTheme] = useState<Theme>(() => initialTheme ?? initializeTheme())
   const [trips, setTrips] = useState<TripSummary[]>([])
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
-  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null)
+  const [atlasView, setAtlasView] = useState<AtlasView>({ kind: 'map' })
   const [placeDetails, setPlaceDetails] = useState<PlaceDetails | null>(null)
   const [isPlaceDetailsLoading, setIsPlaceDetailsLoading] = useState(false)
   const [placeDetailsError, setPlaceDetailsError] = useState<string | null>(null)
@@ -48,13 +71,43 @@ export default function App() {
   const [isMutating, setIsMutating] = useState(false)
   const [formMode, setFormMode] = useState<TripFormMode>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isNavigationOpen, setIsNavigationOpen] = useState(false)
+  const navigationToggleRef = useRef<HTMLButtonElement>(null)
+  const navigationCloseRef = useRef<HTMLButtonElement>(null)
   const activeSelectedTrip = selectedTripId !== null && selectedTrip?.id === selectedTripId
     ? selectedTrip
     : null
+  const selectedPlaceId = atlasView.kind === 'place'
+    || (atlasView.kind === 'memory' && atlasView.origin === 'place')
+    ? atlasView.cityId
+    : null
+  const activePlaceDetails = selectedPlaceId !== null && placeDetails?.city.id === selectedPlaceId
+    ? placeDetails
+    : null
+  const activeMemory = memoryForView(atlasView, activePlaceDetails, activeSelectedTrip)
 
   useEffect(() => {
     void loadApplication()
   }, [])
+
+  useEffect(() => {
+    if (!isNavigationOpen) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsNavigationOpen(false)
+        navigationToggleRef.current?.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 820px)').matches) {
+      navigationCloseRef.current?.focus()
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isNavigationOpen])
 
   useEffect(() => {
     if (!selectedTripId) {
@@ -117,8 +170,37 @@ export default function App() {
   }, [selectedPlaceId, placeDetailsRequestVersion])
 
   const handleOpenPlace = useCallback((cityId: string) => {
-    setSelectedPlaceId(cityId)
+    setIsNavigationOpen(false)
+    setAtlasView({ kind: 'place', cityId })
   }, [])
+
+  function handleOpenPlaceMemory(visit: PlaceVisit) {
+    if (!activePlaceDetails) {
+      return
+    }
+    setAtlasView({
+      kind: 'memory',
+      cityId: activePlaceDetails.city.id,
+      stopId: visit.stopId,
+      tripId: visit.tripId,
+      origin: 'place',
+    })
+  }
+
+  function handleOpenJourneyMemory(stopId: string) {
+    const stop = activeSelectedTrip?.stops.find((candidate) => candidate.id === stopId)
+    if (!activeSelectedTrip || !stop) {
+      return
+    }
+    setAtlasView({
+      kind: 'memory',
+      cityId: stop.city.id,
+      stopId: stop.id,
+      tripId: activeSelectedTrip.id,
+      origin: 'journey',
+    })
+    setIsNavigationOpen(false)
+  }
 
   async function loadApplication(preferredTripId?: string) {
     setIsLoading(true)
@@ -272,10 +354,71 @@ export default function App() {
       : currentTrip)
   }
 
+  async function handleMemoryUpdateJournal(input: StopJournalInput) {
+    const target = memoryMutationTarget(atlasView)
+    if (!target) {
+      return
+    }
+
+    const updatedStop = await performMutation(() => updateStopJournal(target.tripId, target.stopId, input))
+    applyMemoryStopUpdate(target, updatedStop)
+    await refreshOverview()
+  }
+
+  async function handleMemoryUploadPhoto(file: File) {
+    const target = memoryMutationTarget(atlasView)
+    if (!target) {
+      return
+    }
+
+    const createdPhoto = await performMutation(() => uploadStopPhoto(target.tripId, target.stopId, file))
+    applyMemoryPhotoUpdate(target, (photos) => orderedMemoryPhotos([...photos, createdPhoto]))
+    await refreshOverview()
+  }
+
+  async function handleMemoryDeletePhoto(photoId: string) {
+    const target = memoryMutationTarget(atlasView)
+    if (!target) {
+      return
+    }
+
+    await performMutation(() => deleteStopPhoto(target.tripId, target.stopId, photoId))
+    applyMemoryPhotoUpdate(target, (photos) => photos
+      .filter((photo) => photo.id !== photoId)
+      .map((photo, index) => ({ ...photo, position: index + 1 })))
+    await refreshOverview()
+  }
+
+  function applyMemoryStopUpdate(target: MemoryMutationTarget, updatedStop: TripStop) {
+    setSelectedTrip((currentTrip) => currentTrip?.id === target.tripId
+      ? { ...currentTrip, stops: replaceStop(currentTrip.stops, updatedStop) }
+      : currentTrip)
+    setPlaceDetails((currentDetails) => updatePlaceVisit(currentDetails, target, (visit) => ({
+      ...visit,
+      arrivalDate: updatedStop.arrivalDate,
+      departureDate: updatedStop.departureDate,
+      note: updatedStop.note,
+      photos: orderedMemoryPhotos(updatedStop.photos),
+    })))
+  }
+
+  function applyMemoryPhotoUpdate(
+    target: MemoryMutationTarget,
+    update: (photos: TripStopPhoto[]) => TripStopPhoto[],
+  ) {
+    setSelectedTrip((currentTrip) => currentTrip?.id === target.tripId
+      ? { ...currentTrip, stops: updateStopPhotos(currentTrip.stops, target.stopId, update) }
+      : currentTrip)
+    setPlaceDetails((currentDetails) => updatePlaceVisit(currentDetails, target, (visit) => ({
+      ...visit,
+      photos: orderedMemoryPhotos(update(visit.photos)),
+    })))
+  }
+
   function handleSelectTrip(tripId: string) {
     const nextTripId = selectedTripId === tripId ? null : tripId
     setError(null)
-    setSelectedPlaceId(null)
+    setAtlasView({ kind: 'map' })
     setFormMode(null)
     setSelectedTrip(null)
     setSelectedTripId(nextTripId)
@@ -286,10 +429,58 @@ export default function App() {
 
   function handleViewTrip(tripId: string) {
     setError(null)
-    setSelectedPlaceId(null)
+    setAtlasView({ kind: 'map' })
+    setFormMode(null)
+    if (selectedTripId !== tripId) {
+      setSelectedTrip(null)
+    }
+    setSelectedTripId(tripId)
+    setIsNavigationOpen(true)
+  }
+
+  function handleMemoryBack() {
+    if (atlasView.kind !== 'memory') {
+      return
+    }
+    setAtlasView(atlasView.origin === 'place'
+      ? { kind: 'place', cityId: atlasView.cityId }
+      : { kind: 'map' })
+  }
+
+  function handleMemoryPlace() {
+    if (atlasView.kind !== 'memory') {
+      return
+    }
+    setError(null)
     setFormMode(null)
     setSelectedTrip(null)
-    setSelectedTripId(tripId)
+    setSelectedTripId(null)
+    setAtlasView({ kind: 'place', cityId: atlasView.cityId })
+    void refreshOverview()
+  }
+
+  function handleMemoryJourney() {
+    if (atlasView.kind !== 'memory') {
+      return
+    }
+    handleViewTrip(atlasView.tripId)
+  }
+
+  function handleMemoryWorld() {
+    setError(null)
+    setFormMode(null)
+    setSelectedTrip(null)
+    setSelectedTripId(null)
+    setAtlasView({ kind: 'map' })
+    setIsNavigationOpen(false)
+    void refreshOverview()
+  }
+
+  function closeNavigation({ restoreFocus = false } = {}) {
+    setIsNavigationOpen(false)
+    if (restoreFocus) {
+      navigationToggleRef.current?.focus()
+    }
   }
 
   async function refreshOverview() {
@@ -300,23 +491,49 @@ export default function App() {
     }
   }
 
+  function handleThemeChange(nextTheme: Theme) {
+    applyTheme(nextTheme)
+    persistTheme(nextTheme)
+    setTheme(nextTheme)
+  }
+
   return (
     <main className="application-shell">
-      <aside className="sidebar">
-        <a className="brand" href="/" aria-label="WanderMap home">
-          <span className="brand-mark">W</span>
-          <span className="brand-copy">
-            <strong>WanderMap</strong>
-            <small>Personal atlas</small>
-          </span>
-        </a>
+      <div
+        aria-hidden="true"
+        className={`mobile-navigation-backdrop${isNavigationOpen ? ' is-open' : ''}`}
+        onClick={() => closeNavigation({ restoreFocus: true })}
+      />
+      <aside
+        aria-label="Journey navigation"
+        className={`sidebar${isNavigationOpen ? ' is-open' : ''}`}
+        id="journey-navigation"
+      >
+        <div className="sidebar-brand-row">
+          <a className="brand" href="/" aria-label="WanderMap home">
+            <span aria-hidden="true" className="brand-mark">W</span>
+            <span className="brand-copy">
+              <strong>WanderMap</strong>
+              <small>Personal atlas</small>
+            </span>
+          </a>
+          <button
+            aria-label="Close journey navigation"
+            className="sidebar-close"
+            ref={navigationCloseRef}
+            type="button"
+            onClick={() => closeNavigation({ restoreFocus: true })}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
         <TripList
           isLoading={isLoading}
           overview={overview}
           selectedTripId={selectedTripId}
           trips={trips}
           onCreate={() => {
-            setSelectedPlaceId(null)
+            setAtlasView({ kind: 'map' })
             setFormMode('create')
           }}
           onSelect={handleSelectTrip}
@@ -358,6 +575,7 @@ export default function App() {
               onUpdateJournal={handleUpdateStopJournal}
               onUploadPhoto={handleUploadPhoto}
               onDeletePhoto={handleDeletePhoto}
+              onOpenMemory={handleOpenJourneyMemory}
             />
             <div className="trip-management-actions">
               <button className="button button-quiet" disabled={isMutating} type="button" onClick={() => setFormMode('edit')}>
@@ -369,8 +587,36 @@ export default function App() {
             </div>
           </>
         ) : null}
+        <AppearanceControl theme={theme} onChange={handleThemeChange} />
       </aside>
       <div className="content-area">
+        {atlasView.kind !== 'memory' ? (
+          <div className="mobile-map-controls" aria-label="Map navigation">
+            <button
+              aria-controls="journey-navigation"
+              aria-expanded={isNavigationOpen}
+              aria-label="Open journey navigation"
+              className="mobile-map-button"
+              ref={navigationToggleRef}
+              type="button"
+              onClick={() => setIsNavigationOpen(true)}
+            >
+              <span aria-hidden="true">☰</span>
+              Journeys
+            </button>
+            {selectedTripId !== null || atlasView.kind !== 'map' ? (
+              <button
+                aria-label="Return to world map"
+                className="mobile-map-button"
+                type="button"
+                onClick={handleMemoryWorld}
+              >
+                <span aria-hidden="true">←</span>
+                World
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {error ? (
           <div className="error-banner" role="alert">
             <span>{error}</span>
@@ -385,19 +631,88 @@ export default function App() {
           trips={trips}
           onSelectPlace={handleOpenPlace}
         />
-        {selectedTripId === null && selectedPlaceId ? (
+        {selectedTripId === null && atlasView.kind === 'place' ? (
           <PlaceDetailsPanel
-            details={placeDetails}
+            details={activePlaceDetails}
             error={placeDetailsError}
             isLoading={isPlaceDetailsLoading}
-            onClose={() => setSelectedPlaceId(null)}
+            onClose={() => setAtlasView({ kind: 'map' })}
             onRetry={() => setPlaceDetailsRequestVersion((version) => version + 1)}
+            onViewMemory={handleOpenPlaceMemory}
             onViewTrip={handleViewTrip}
+          />
+        ) : null}
+        {atlasView.kind === 'memory' && activeMemory ? (
+          <MemoryView
+            key={`${atlasView.tripId}:${atlasView.stopId}`}
+            city={activeMemory.city}
+            isMutating={isMutating}
+            origin={atlasView.origin}
+            visit={activeMemory.visit}
+            onBack={handleMemoryBack}
+            onDeletePhoto={handleMemoryDeletePhoto}
+            onJourney={handleMemoryJourney}
+            onPlace={handleMemoryPlace}
+            onUpdateJournal={handleMemoryUpdateJournal}
+            onUploadPhoto={handleMemoryUploadPhoto}
+            onWorld={handleMemoryWorld}
           />
         ) : null}
       </div>
     </main>
   )
+}
+
+function memoryForView(
+  atlasView: AtlasView,
+  placeDetails: PlaceDetails | null,
+  selectedTrip: Trip | null,
+): { city: City; visit: PlaceVisit } | null {
+  if (atlasView.kind !== 'memory') {
+    return null
+  }
+
+  if (atlasView.origin === 'place') {
+    if (placeDetails?.city.id !== atlasView.cityId) {
+      return null
+    }
+    const visit = placeDetails.visits.find((candidate) => candidate.stopId === atlasView.stopId)
+    return visit ? { city: placeDetails.city, visit } : null
+  }
+
+  if (selectedTrip?.id !== atlasView.tripId) {
+    return null
+  }
+  const stop = selectedTrip.stops.find((candidate) => candidate.id === atlasView.stopId)
+  return stop ? { city: stop.city, visit: visitForTripStop(selectedTrip, stop) } : null
+}
+
+interface MemoryMutationTarget {
+  tripId: string
+  stopId: string
+}
+
+function memoryMutationTarget(atlasView: AtlasView): MemoryMutationTarget | null {
+  return atlasView.kind === 'memory'
+    ? { tripId: atlasView.tripId, stopId: atlasView.stopId }
+    : null
+}
+
+function updatePlaceVisit(
+  details: PlaceDetails | null,
+  target: MemoryMutationTarget,
+  update: (visit: PlaceVisit) => PlaceVisit,
+): PlaceDetails | null {
+  if (!details) {
+    return details
+  }
+
+  return {
+    ...details,
+    visits: details.visits.map((visit) => visit.tripId === target.tripId && visit.stopId === target.stopId
+      ? update(visit)
+      : visit),
+  }
 }
 
 function toErrorMessage(reason: unknown): string {
