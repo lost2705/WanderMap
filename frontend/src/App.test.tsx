@@ -241,6 +241,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
   window.localStorage.clear()
   delete document.documentElement.dataset.theme
 })
@@ -452,6 +453,67 @@ describe('App responsive navigation', () => {
 
     await waitFor(() => expectMapState('global', '', 'italy,japan'))
     expect(screen.queryByRole('button', { name: 'Return to world map' })).toBeNull()
+  })
+
+  it('isolates mobile background focus, traps Tab in the drawer, and restores focus after Escape', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const mapSurface = screen.getByTestId('map-state')
+    const navigation = screen.getByRole('complementary', { name: 'Journey navigation' })
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    const background = document.querySelector<HTMLElement>('.content-area')
+    openButton.focus()
+
+    fireEvent.click(openButton)
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close journey navigation' }))
+    expect(background?.hasAttribute('inert')).toBe(true)
+    expect(openButton.closest('[inert]')).toBe(background)
+
+    const lastDrawerControl = screen.getByRole('combobox', { name: 'Appearance' })
+    lastDrawerControl.focus()
+    fireEvent.keyDown(window, { key: 'Tab' })
+    expect(navigation.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).not.toBe(lastDrawerControl)
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    await waitFor(() => expect(document.activeElement).toBe(openButton))
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(background?.hasAttribute('inert')).toBe(false)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('restores mobile focus when the drawer Close button is used', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    openButton.focus()
+    fireEvent.click(openButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Close journey navigation' }))
+
+    await waitFor(() => expect(document.activeElement).toBe(openButton))
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+  })
+
+  it('keeps the desktop sidebar non-modal and the single map surface available', async () => {
+    stubNavigationViewport(false)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+
+    const mapSurface = screen.getByTestId('map-state')
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+    openButton.focus()
+    fireEvent.click(openButton)
+
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+    expect(document.activeElement).toBe(openButton)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
   })
 })
 
@@ -982,6 +1044,19 @@ async function openGlobalMemory(cityName: string) {
   await openGlobalPlace(cityName)
   fireEvent.click(screen.getByRole('button', { name: 'View memory →' }))
   await screen.findByRole('region', { name: 'Memory view' })
+}
+
+function stubNavigationViewport(matches: boolean) {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({
+    matches,
+    media: '(max-width: 820px)',
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  })))
 }
 
 function deferred<T>() {

@@ -4,7 +4,8 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trip, TripMapOverview } from '../../types/travel'
 import { COUNTRY_HIGHLIGHT_LAYER_ID, COUNTRY_HIGHLIGHT_SOURCE_ID } from './countryHighlightLayers'
-import { countryFeatureFilter } from './mapData'
+import { countryFeatureFilter, tripVisualIdentity } from './mapData'
+import { ROUTE_LINE_LAYER_ID, ROUTE_SOURCE_ID } from './routeLayers'
 
 const mapLifecycle = vi.hoisted(() => ({
   construct: vi.fn(),
@@ -13,8 +14,13 @@ const mapLifecycle = vi.hoisted(() => ({
   addLayer: vi.fn(),
   setFilter: vi.fn(),
   setPaintProperty: vi.fn(),
+  sourceSetData: vi.fn(),
   markerAdd: vi.fn(),
   markerRemove: vi.fn(),
+  markerCreate: vi.fn(),
+  fitBounds: vi.fn(),
+  flyTo: vi.fn(),
+  jumpTo: vi.fn(),
 }))
 
 vi.mock('maplibre-gl', () => {
@@ -37,9 +43,9 @@ vi.mock('maplibre-gl', () => {
     once() {}
     cameraForBounds() { return { center: [0, 18], zoom: 1 } }
     setMinZoom() {}
-    jumpTo() {}
-    flyTo() {}
-    fitBounds() {}
+    jumpTo(options: unknown) { mapLifecycle.jumpTo(options) }
+    flyTo(options: unknown) { mapLifecycle.flyTo(options) }
+    fitBounds(bounds: unknown, options: unknown) { mapLifecycle.fitBounds(bounds, options) }
     project() { return { x: 0, y: 0 } }
     getStyle() {
       return {
@@ -53,7 +59,7 @@ vi.mock('maplibre-gl', () => {
     }
     getSource(id: string) { return this.sources.get(id) }
     addSource(id: string, specification: unknown) {
-      this.sources.set(id, { setData: vi.fn() })
+      this.sources.set(id, { setData: vi.fn((data: unknown) => mapLifecycle.sourceSetData(id, data)) })
       mapLifecycle.addSource(id, specification)
     }
     removeSource(id: string) { this.sources.delete(id) }
@@ -74,6 +80,7 @@ vi.mock('maplibre-gl', () => {
   }
 
   class MockMarker {
+    constructor(options: { element: HTMLElement }) { mapLifecycle.markerCreate(options.element) }
     setLngLat() { return this }
     setPopup() { return this }
     addTo() { mapLifecycle.markerAdd(); return this }
@@ -98,9 +105,16 @@ beforeEach(() => {
     json: () => Promise.resolve(countryBoundaries()),
   }))
   vi.stubGlobal('getComputedStyle', vi.fn(() => ({
-    getPropertyValue: () => document.documentElement.dataset.theme === 'midnight'
-      ? '#e18a62'
-      : '#df8a5f',
+    getPropertyValue: (property: string) => {
+      const midnight = document.documentElement.dataset.theme === 'midnight'
+      if (property === '--color-map-route') {
+        return midnight ? '#f09a68' : '#bd5426'
+      }
+      if (property === '--color-map-country-fill') {
+        return midnight ? '#e18a62' : '#df8a5f'
+      }
+      return ''
+    },
   })))
 })
 
@@ -129,6 +143,8 @@ describe('MapView country highlight lifecycle', () => {
     }))
     expect(countryLayerCalls()[0]?.[1]).toBe('base-roads')
     expect(view.container.querySelector('.country-overlay')).toBeNull()
+    expect(markerElements()[0]?.style.getPropertyValue('--trip-color'))
+      .toBe(tripVisualIdentity('italy').color)
 
     view.rerender(
       <MapView overview={overview} selectedTrip={tripWithCountries('italy', 'IT')} trips={[]} onSelectPlace={onSelectPlace} />,
@@ -139,6 +155,8 @@ describe('MapView country highlight lifecycle', () => {
         countryFeatureFilter(['IT']),
       )
     })
+    expect(markerElements().at(-1)?.classList.contains('is-itinerary')).toBe(true)
+    expect(markerElements().at(-1)?.style.getPropertyValue('--trip-color')).toBe('')
 
     view.rerender(
       <MapView
@@ -172,6 +190,11 @@ describe('MapView country highlight lifecycle', () => {
         COUNTRY_HIGHLIGHT_LAYER_ID,
         countryFeatureFilter([]),
       )
+      expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(
+        ROUTE_LINE_LAYER_ID,
+        'line-color',
+        ['get', 'identityColor'],
+      )
     })
 
     expect(mapLifecycle.construct).toHaveBeenCalledTimes(1)
@@ -180,6 +203,58 @@ describe('MapView country highlight lifecycle', () => {
     expect(mapLifecycle.markerAdd).toHaveBeenCalledTimes(3)
     expect(view.container.querySelectorAll('.maplibregl-canvas')).toHaveLength(1)
     expect(view.container.querySelector('.maplibregl-canvas')).toBe(canvas)
+  })
+
+  it('uses semantic theme colors for selected route and markers without changing map data or lifecycle', async () => {
+    const onSelectPlace = vi.fn()
+    const overview = selectedRouteOverview()
+    const selectedTrip = selectedRouteTrip()
+    const view = render(
+      <MapView overview={overview} selectedTrip={selectedTrip} trips={[]} onSelectPlace={onSelectPlace} />,
+    )
+
+    await waitFor(() => {
+      expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(
+        ROUTE_LINE_LAYER_ID,
+        'line-color',
+        '#bd5426',
+      )
+      expect(routeSourceDataCalls()).toHaveLength(1)
+      expect(markerElements()).toHaveLength(2)
+    })
+
+    const initialRouteData = routeSourceDataCalls()[0]?.[1]
+    const initialGeometry = JSON.stringify(initialRouteData.features[0].geometry)
+    expect(markerElements().every((element) => element.classList.contains('is-itinerary'))).toBe(true)
+    expect(markerElements().every((element) => element.style.getPropertyValue('--trip-color') === '')).toBe(true)
+    expect(mapLifecycle.fitBounds).toHaveBeenCalledTimes(1)
+
+    document.documentElement.dataset.theme = 'midnight'
+    view.rerender(
+      <MapView overview={overview} selectedTrip={selectedTrip} trips={[]} onSelectPlace={onSelectPlace} />,
+    )
+
+    await waitFor(() => {
+      expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(
+        ROUTE_LINE_LAYER_ID,
+        'line-color',
+        '#f09a68',
+      )
+      expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(
+        COUNTRY_HIGHLIGHT_LAYER_ID,
+        'fill-color',
+        '#e18a62',
+      )
+    })
+
+    expect(mapLifecycle.construct).toHaveBeenCalledTimes(1)
+    expect(countrySourceCalls()).toHaveLength(1)
+    expect(routeSourceDataCalls()).toHaveLength(1)
+    expect(JSON.stringify(routeSourceDataCalls()[0]?.[1].features[0].geometry)).toBe(initialGeometry)
+    expect(mapLifecycle.markerCreate).toHaveBeenCalledTimes(2)
+    expect(mapLifecycle.markerAdd).toHaveBeenCalledTimes(2)
+    expect(mapLifecycle.markerRemove).not.toHaveBeenCalled()
+    expect(mapLifecycle.fitBounds).toHaveBeenCalledTimes(1)
   })
 
   it('keeps MapLibre usable when the external country dataset fails to load', async () => {
@@ -206,6 +281,15 @@ function countrySourceCalls() {
 function countryLayerCalls() {
   return mapLifecycle.addLayer.mock.calls
     .filter(([specification]) => specification.id === COUNTRY_HIGHLIGHT_LAYER_ID)
+}
+
+function routeSourceDataCalls() {
+  return mapLifecycle.sourceSetData.mock.calls
+    .filter(([id]) => id === ROUTE_SOURCE_ID)
+}
+
+function markerElements(): HTMLElement[] {
+  return mapLifecycle.markerCreate.mock.calls.map(([element]) => element)
 }
 
 function countryBoundaries() {
@@ -260,5 +344,60 @@ function mapOverview(): TripMapOverview {
       longitude: 12.4964,
       country: { code: 'IT', name: 'Italy' },
     }],
+  }
+}
+
+function selectedRouteTrip(): Trip {
+  return {
+    id: 'japan',
+    name: 'Japan',
+    startDate: null,
+    endDate: null,
+    description: null,
+    stops: [
+      locatedStop('tokyo', 1, 35.6762, 139.6503),
+      locatedStop('kyoto', 2, 35.0116, 135.7681),
+    ],
+  }
+}
+
+function selectedRouteOverview(): TripMapOverview {
+  return {
+    visitedCountryCodes: ['JP'],
+    memoryCount: 0,
+    markers: [
+      locatedMarker('tokyo', 1, 35.6762, 139.6503),
+      locatedMarker('kyoto', 2, 35.0116, 135.7681),
+    ],
+  }
+}
+
+function locatedStop(id: string, position: number, latitude: number, longitude: number) {
+  return {
+    id,
+    position,
+    arrivalDate: null,
+    departureDate: null,
+    note: null,
+    city: {
+      id: `city-${id}`,
+      name: id,
+      latitude,
+      longitude,
+      country: { code: 'JP', name: 'Japan' },
+    },
+  }
+}
+
+function locatedMarker(id: string, position: number, latitude: number, longitude: number) {
+  return {
+    tripId: 'japan',
+    stopId: id,
+    cityId: `city-${id}`,
+    position,
+    cityName: id,
+    latitude,
+    longitude,
+    country: { code: 'JP', name: 'Japan' },
   }
 }

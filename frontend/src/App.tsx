@@ -45,6 +45,16 @@ interface AppProps {
   initialTheme?: Theme
 }
 
+const MOBILE_NAVIGATION_QUERY = '(max-width: 820px)'
+const DRAWER_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',')
+
 type AtlasView =
   | { kind: 'map' }
   | { kind: 'place'; cityId: string }
@@ -74,6 +84,8 @@ export default function App({ initialTheme }: AppProps) {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
   const navigationToggleRef = useRef<HTMLButtonElement>(null)
   const navigationCloseRef = useRef<HTMLButtonElement>(null)
+  const contentAreaRef = useRef<HTMLDivElement>(null)
+  const restoreNavigationFocusRef = useRef(false)
   const activeSelectedTrip = selectedTripId !== null && selectedTrip?.id === selectedTripId
     ? selectedTrip
     : null
@@ -92,21 +104,92 @@ export default function App({ initialTheme }: AppProps) {
 
   useEffect(() => {
     if (!isNavigationOpen) {
+      if (restoreNavigationFocusRef.current) {
+        restoreNavigationFocusRef.current = false
+        navigationToggleRef.current?.focus()
+      }
       return
     }
 
+    if (typeof window.matchMedia !== 'function') {
+      return
+    }
+
+    const mobileNavigation = window.matchMedia(MOBILE_NAVIGATION_QUERY)
+    const navigation = navigationCloseRef.current?.closest<HTMLElement>('#journey-navigation') ?? null
+    const background = contentAreaRef.current
+    let pendingFocusTimeout: number | null = null
+
+    function updateFocusIsolation() {
+      if (mobileNavigation.matches) {
+        if (navigation && !navigation.contains(document.activeElement)) {
+          navigationCloseRef.current?.focus()
+        }
+        background?.setAttribute('inert', '')
+
+        if (navigation) {
+          if (pendingFocusTimeout !== null) {
+            window.clearTimeout(pendingFocusTimeout)
+          }
+          pendingFocusTimeout = window.setTimeout(() => {
+            pendingFocusTimeout = null
+            if (mobileNavigation.matches && !navigation.contains(document.activeElement)) {
+              navigationCloseRef.current?.focus()
+            }
+          }, 50)
+        }
+      } else {
+        if (pendingFocusTimeout !== null) {
+          window.clearTimeout(pendingFocusTimeout)
+          pendingFocusTimeout = null
+        }
+        background?.removeAttribute('inert')
+      }
+    }
+
     function handleKeyDown(event: KeyboardEvent) {
+      if (!mobileNavigation.matches) {
+        return
+      }
+
       if (event.key === 'Escape') {
-        setIsNavigationOpen(false)
-        navigationToggleRef.current?.focus()
+        event.preventDefault()
+        closeNavigation({ restoreFocus: true })
+        return
+      }
+
+      if (event.key !== 'Tab' || !navigation) {
+        return
+      }
+
+      const focusableElements = drawerFocusableElements(navigation)
+      const firstElement = focusableElements[0]
+      const lastElement = focusableElements.at(-1)
+      if (!firstElement || !lastElement) {
+        return
+      }
+
+      if (event.shiftKey && (document.activeElement === firstElement || !navigation.contains(document.activeElement))) {
+        event.preventDefault()
+        lastElement.focus()
+      } else if (!event.shiftKey && (document.activeElement === lastElement || !navigation.contains(document.activeElement))) {
+        event.preventDefault()
+        firstElement.focus()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    if (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 820px)').matches) {
-      navigationCloseRef.current?.focus()
+    mobileNavigation.addEventListener('change', updateFocusIsolation)
+    updateFocusIsolation()
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      mobileNavigation.removeEventListener('change', updateFocusIsolation)
+      if (pendingFocusTimeout !== null) {
+        window.clearTimeout(pendingFocusTimeout)
+      }
+      background?.removeAttribute('inert')
     }
-    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isNavigationOpen])
 
   useEffect(() => {
@@ -477,10 +560,8 @@ export default function App({ initialTheme }: AppProps) {
   }
 
   function closeNavigation({ restoreFocus = false } = {}) {
+    restoreNavigationFocusRef.current = restoreNavigationFocusRef.current || restoreFocus
     setIsNavigationOpen(false)
-    if (restoreFocus) {
-      navigationToggleRef.current?.focus()
-    }
   }
 
   async function refreshOverview() {
@@ -589,7 +670,7 @@ export default function App({ initialTheme }: AppProps) {
         ) : null}
         <AppearanceControl theme={theme} onChange={handleThemeChange} />
       </aside>
-      <div className="content-area">
+      <div className="content-area" ref={contentAreaRef}>
         {atlasView.kind !== 'memory' ? (
           <div className="mobile-map-controls" aria-label="Map navigation">
             <button
@@ -661,6 +742,10 @@ export default function App({ initialTheme }: AppProps) {
       </div>
     </main>
   )
+}
+
+function drawerFocusableElements(navigation: HTMLElement): HTMLElement[] {
+  return [...navigation.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE_SELECTOR)]
 }
 
 function memoryForView(

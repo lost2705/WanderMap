@@ -5,6 +5,7 @@ import type { TripRouteFeatureCollection } from './mapData'
 export const ROUTE_SOURCE_ID = 'trip-routes'
 export const ROUTE_CASING_LAYER_ID = 'trip-route-casing'
 export const ROUTE_LINE_LAYER_ID = 'trip-route-lines'
+const ROUTE_IDENTITY_COLOR: maplibregl.ExpressionSpecification = ['get', 'identityColor']
 
 export function ensureTripRouteLayers(map: maplibregl.Map): void {
   if (!map.getSource(ROUTE_SOURCE_ID)) {
@@ -40,7 +41,7 @@ export function ensureTripRouteLayers(map: maplibregl.Map): void {
         'line-join': 'round',
       },
       paint: {
-        'line-color': ['get', 'color'],
+        'line-color': ROUTE_IDENTITY_COLOR,
         'line-width': ['get', 'lineWidth'],
         'line-opacity': ['get', 'lineOpacity'],
         'line-offset': ['get', 'lineOffset'],
@@ -51,6 +52,16 @@ export function ensureTripRouteLayers(map: maplibregl.Map): void {
 
 export function updateTripRouteData(map: maplibregl.Map, routeData: TripRouteFeatureCollection): void {
   map.getSource<maplibregl.GeoJSONSource>(ROUTE_SOURCE_ID)?.setData(routeData)
+}
+
+export function updateTripRouteColor(map: maplibregl.Map, selectedRouteColor: string | null): void {
+  if (map.getLayer(ROUTE_LINE_LAYER_ID)) {
+    map.setPaintProperty(
+      ROUTE_LINE_LAYER_ID,
+      'line-color',
+      selectedRouteColor ?? ROUTE_IDENTITY_COLOR,
+    )
+  }
 }
 
 export function removeTripRouteLayers(map: maplibregl.Map): void {

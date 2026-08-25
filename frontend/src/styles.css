@@ -1030,7 +1030,7 @@ textarea:focus {
   width: 1.9rem;
   height: 1.9rem;
   border: 2px solid var(--color-map-marker-border);
-  background: var(--trip-color, var(--color-map-marker));
+  background: var(--color-map-marker);
   box-shadow: var(--shadow-marker);
   color: var(--color-map-marker-label);
   font-size: 0.7rem;

@@ -52,7 +52,7 @@ export interface DisplayMarker {
   country: Country
   visits: PlaceVisit[]
   coordinate: MapCoordinate
-  color: string
+  identityColor: string
   markerLabel: string | null
   collisionOrder: number
   pixelOffset: MapPixelOffset
@@ -71,7 +71,7 @@ export interface TripVisualIdentity {
 export interface TripRoute {
   tripId: string
   coordinates: MapCoordinate[]
-  color: string
+  identityColor: string
   lineOffset: number
   lineWidth: number
   lineOpacity: number
@@ -88,7 +88,7 @@ interface TripRouteFeature {
   type: 'Feature'
   properties: {
     tripId: string
-    color: string
+    identityColor: string
     lineOffset: number
     lineWidth: number
     lineOpacity: number
@@ -183,7 +183,7 @@ export function placesForGlobalMap(overview: TripMapOverview | null): DisplayMar
       country: marker.country,
       visits: [visit],
       coordinate: toMapCoordinate(marker.latitude, marker.longitude),
-      color: tripVisualIdentity(marker.tripId).color,
+      identityColor: tripVisualIdentity(marker.tripId).color,
       markerLabel: null,
       collisionOrder: 0,
       pixelOffset: [0, 0],
@@ -208,7 +208,7 @@ export function markersForSelectedTrip(
       country: marker.country,
       visits: [{ tripId: marker.tripId, stopId: marker.stopId, position: marker.position }],
       coordinate: toMapCoordinate(marker.latitude, marker.longitude),
-      color: tripVisualIdentity(marker.tripId).color,
+      identityColor: tripVisualIdentity(marker.tripId).color,
       markerLabel: String(marker.position),
       collisionOrder: marker.position,
       pixelOffset: [0, 0],
@@ -300,7 +300,7 @@ export function routeFeatureCollection(routes: TripRoute[]): TripRouteFeatureCol
       type: 'Feature',
       properties: {
         tripId: route.tripId,
-        color: route.color,
+        identityColor: route.identityColor,
         lineOffset: route.lineOffset,
         lineWidth: route.lineWidth,
         lineOpacity: route.lineOpacity,
@@ -462,7 +462,7 @@ function routeForStops(
   return {
     tripId,
     coordinates,
-    color: tripVisualIdentity(tripId).color,
+    identityColor: tripVisualIdentity(tripId).color,
     lineOffset: 0,
     lineWidth: isSelectedTrip ? 5 : 3.5,
     lineOpacity: isSelectedTrip ? 0.96 : 0.76,

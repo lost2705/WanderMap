@@ -20,7 +20,12 @@ import {
   selectedTripCameraTarget,
   selectedTripCameraTargetKey,
 } from './mapData'
-import { ensureTripRouteLayers, removeTripRouteLayers, updateTripRouteData } from './routeLayers'
+import {
+  ensureTripRouteLayers,
+  removeTripRouteLayers,
+  updateTripRouteColor,
+  updateTripRouteData,
+} from './routeLayers'
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const COUNTRY_BOUNDARIES_URL =
@@ -28,6 +33,7 @@ const COUNTRY_BOUNDARIES_URL =
 const WORLD_OVERVIEW_BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 85]]
 const WORLD_OVERVIEW_PADDING = 28
 const DEFAULT_COUNTRY_FILL = '#df8a5f'
+const DEFAULT_SELECTED_ROUTE = '#bd5426'
 
 interface MapViewProps {
   overview: TripMapOverview | null
@@ -137,7 +143,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       return
     }
 
-    ensureCountryHighlightLayer(map, countryBoundaryData, visitedCountryCodes, countryFillColor())
+    ensureCountryHighlightLayer(map, countryBoundaryData, visitedCountryCodes, mapThemeColors().countryFill)
 
     return () => {
       if (mapRef.current === map) {
@@ -157,20 +163,6 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
-    if (!map || !countryBoundaryData) {
-      return
-    }
-
-    const applyThemeColor = () => updateCountryHighlightColor(map, countryFillColor())
-    applyThemeColor()
-    const observer = new MutationObserver(applyThemeColor)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-
-    return () => observer.disconnect()
-  }, [readyMap, countryBoundaryData])
-
-  useEffect(() => {
-    const map = activeReadyMap(readyMap, mapRef.current)
     if (!map) {
       return
     }
@@ -184,6 +176,24 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       removeTripRouteLayers(map)
     }
   }, [readyMap])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    const applyThemeColors = () => {
+      const colors = mapThemeColors()
+      updateCountryHighlightColor(map, colors.countryFill)
+      updateTripRouteColor(map, selectedTrip ? colors.selectedRoute : null)
+    }
+    applyThemeColors()
+    const observer = new MutationObserver(applyThemeColors)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+
+    return () => observer.disconnect()
+  }, [readyMap, selectedTrip])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -308,7 +318,9 @@ function createMarker(
     ? 'map-marker is-place'
     : 'map-marker is-itinerary is-selected'
   element.type = 'button'
-  element.style.setProperty('--trip-color', marker.color)
+  if (marker.mode === 'global-place') {
+    element.style.setProperty('--trip-color', marker.identityColor)
+  }
   element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
   element.textContent = marker.markerLabel ?? ''
 
@@ -367,9 +379,12 @@ function popupLine(text: string): HTMLSpanElement {
   return line
 }
 
-function countryFillColor(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--color-map-country-fill').trim()
-    || DEFAULT_COUNTRY_FILL
+function mapThemeColors(): { countryFill: string; selectedRoute: string } {
+  const styles = getComputedStyle(document.documentElement)
+  return {
+    countryFill: styles.getPropertyValue('--color-map-country-fill').trim() || DEFAULT_COUNTRY_FILL,
+    selectedRoute: styles.getPropertyValue('--color-map-route').trim() || DEFAULT_SELECTED_ROUTE,
+  }
 }
 
 function updateWorldViewport(map: maplibregl.Map, moveCamera: boolean) {
