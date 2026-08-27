@@ -197,9 +197,11 @@ export default function App({ initialTheme }: AppProps) {
       setSelectedTrip(null)
       return
     }
+    if (selectedTrip?.id === selectedTripId) {
+      return
+    }
 
     let cancelled = false
-    setSelectedTrip(null)
     getTrip(selectedTripId)
       .then((trip) => {
         if (!cancelled) {
@@ -214,7 +216,7 @@ export default function App({ initialTheme }: AppProps) {
     return () => {
       cancelled = true
     }
-  }, [selectedTripId])
+  }, [selectedTrip, selectedTripId])
 
   useEffect(() => {
     if (!selectedPlaceId) {
@@ -322,12 +324,11 @@ export default function App({ initialTheme }: AppProps) {
 
   async function handleCreate(input: TripDetailsInput) {
     const createdTrip = await performMutation(() => createTrip(input))
-    if (!createdTrip) {
-      return
-    }
     setFormMode(null)
+    setAtlasView({ kind: 'map' })
+    setTrips((currentTrips) => [...currentTrips, toTripSummary(createdTrip)].sort(compareTripSummaries))
+    setSelectedTripId(createdTrip.id)
     setSelectedTrip(createdTrip)
-    await loadApplication(createdTrip.id)
   }
 
   async function handleUpdate(input: TripDetailsInput) {
@@ -365,13 +366,20 @@ export default function App({ initialTheme }: AppProps) {
     if (!selectedTrip) {
       return
     }
-    await performMutation(() => addStop(selectedTrip.id, {
+    const tripId = selectedTrip.id
+    const createdStop = await performMutation(() => addStop(tripId, {
       countryCode: city.countryCode,
       cityName: city.name,
       latitude: city.latitude,
       longitude: city.longitude,
     }))
-    await refreshSelectedTrip(selectedTrip.id)
+    setSelectedTrip((currentTrip) => currentTrip?.id === tripId
+      ? { ...currentTrip, stops: [...currentTrip.stops, createdStop].sort(compareStops) }
+      : currentTrip)
+    setTrips((currentTrips) => currentTrips.map((trip) => trip.id === tripId
+      ? { ...trip, stopCount: trip.stopCount + 1 }
+      : trip))
+    setOverview((currentOverview) => appendStopToOverview(currentOverview, tripId, createdStop))
   }
 
   async function handleMoveStop(stopId: string, position: number) {
@@ -809,6 +817,59 @@ function toErrorMessage(reason: unknown): string {
 
 function isAbortError(reason: unknown): boolean {
   return reason instanceof Error && reason.name === 'AbortError'
+}
+
+function toTripSummary(trip: Trip): TripSummary {
+  return {
+    id: trip.id,
+    name: trip.name,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+    description: trip.description,
+    stopCount: trip.stops.length,
+  }
+}
+
+function compareTripSummaries(left: TripSummary, right: TripSummary): number {
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+}
+
+function compareStops(left: TripStop, right: TripStop): number {
+  return left.position - right.position
+}
+
+function appendStopToOverview(
+  currentOverview: TripMapOverview | null,
+  tripId: string,
+  stop: TripStop,
+): TripMapOverview | null {
+  if (!currentOverview) {
+    return currentOverview
+  }
+
+  const visitedCountryCodes = [
+    ...new Set([...currentOverview.visitedCountryCodes, stop.city.country.code]),
+  ].sort()
+  const latitude = stop.city.latitude
+  const longitude = stop.city.longitude
+  const markers = latitude === null || longitude === null
+    ? currentOverview.markers
+    : [...currentOverview.markers, {
+        tripId,
+        stopId: stop.id,
+        cityId: stop.city.id,
+        position: stop.position,
+        cityName: stop.city.name,
+        latitude,
+        longitude,
+        country: stop.city.country,
+      }].sort((left, right) => left.tripId.localeCompare(right.tripId) || left.position - right.position)
+
+  return {
+    ...currentOverview,
+    visitedCountryCodes,
+    markers,
+  }
 }
 
 function replaceStop(stops: TripStop[], updatedStop: TripStop): TripStop[] {

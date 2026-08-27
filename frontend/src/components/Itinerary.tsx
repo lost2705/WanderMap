@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { CitySearchResult, StopJournalInput, Trip, TripStop } from '../types/travel'
 import { formatCalendarDateRange, formatStopDateRange } from '../utils/calendarDate'
@@ -36,21 +36,30 @@ export function Itinerary({
   const [cityQuery, setCityQuery] = useState('')
   const [selectedCity, setSelectedCity] = useState<CitySearchResult | null>(null)
   const [editingStopId, setEditingStopId] = useState<string | null>(null)
+  const [addStopError, setAddStopError] = useState<string | null>(null)
+  const [isAddingStop, setIsAddingStop] = useState(false)
+  const addStopInFlightRef = useRef(false)
 
   const tripDateRange = formatCalendarDateRange(trip.startDate, trip.endDate)
   const tripDuration = tripDurationLabel(trip.startDate, trip.endDate)
 
   async function handleAddStop(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selectedCity) {
+    if (!selectedCity || addStopInFlightRef.current) {
       return
     }
+    addStopInFlightRef.current = true
+    setIsAddingStop(true)
+    setAddStopError(null)
     try {
       await onAddStop(selectedCity)
       setCityQuery('')
       setSelectedCity(null)
-    } catch {
-      // App owns the visible mutation error; preserve the selection so the user can retry.
+    } catch (reason) {
+      setAddStopError(addStopErrorMessage(reason))
+    } finally {
+      addStopInFlightRef.current = false
+      setIsAddingStop(false)
     }
   }
 
@@ -179,18 +188,32 @@ export function Itinerary({
           onQueryChange={(query) => {
             setCityQuery(query)
             setSelectedCity(null)
+            setAddStopError(null)
           }}
           onSelect={(result) => {
             setCityQuery(result.name)
             setSelectedCity(result)
+            setAddStopError(null)
           }}
         />
-        <button className="button button-secondary" disabled={isMutating || !selectedCity} type="submit">
-          {isMutating ? 'Adding…' : 'Add stop'}
+        {addStopError ? <p className="form-error" role="alert">{addStopError}</p> : null}
+        <button
+          className="button button-secondary"
+          disabled={isMutating || isAddingStop || !selectedCity}
+          type="submit"
+        >
+          {isMutating || isAddingStop ? 'Adding…' : 'Add stop'}
         </button>
       </form>
     </section>
   )
+}
+
+function addStopErrorMessage(reason: unknown): string {
+  if (reason instanceof Error && reason.message) {
+    return reason.message
+  }
+  return 'Couldn’t add this stop. Please try again.'
 }
 
 function tripDurationLabel(startDate: string | null, endDate: string | null): string | null {
