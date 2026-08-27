@@ -708,7 +708,10 @@ textarea:focus-visible {
   z-index: 8;
   top: calc(100% + 0.25rem);
   width: 100%;
-  overflow: hidden;
+  max-height: min(22rem, 50dvh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-medium);
   background: var(--color-surface);
@@ -725,6 +728,16 @@ textarea:focus-visible {
 
 .city-search-dropdown .city-search-error {
   color: var(--color-danger);
+}
+
+.city-search-feedback {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+
+.city-search-feedback .city-search-error {
+  padding: 0.45rem 0.5rem 0.25rem;
 }
 
 .city-search-dropdown ul {
@@ -752,11 +765,13 @@ textarea:focus-visible {
 
 .city-search-dropdown strong {
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .city-search-dropdown span {
   color: var(--color-text-secondary);
   font-size: 0.69rem;
+  overflow-wrap: anywhere;
 }
 
 .selected-city {

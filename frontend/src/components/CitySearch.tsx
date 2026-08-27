@@ -34,6 +34,7 @@ export function CitySearch({
   const [errorMessage, setErrorMessage] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
+  const [retryVersion, setRetryVersion] = useState(0)
 
   useEffect(() => {
     const normalizedQuery = query.trim()
@@ -88,7 +89,7 @@ export function CitySearch({
       window.clearTimeout(timeoutId)
       controller.abort()
     }
-  }, [query, search, selectedResult])
+  }, [query, retryVersion, search, selectedResult])
 
   function selectResult(result: CitySearchResult) {
     onSelect(result)
@@ -145,7 +146,11 @@ export function CitySearch({
           onKeyDown={handleKeyDown}
         />
         {isOpen ? (
-          <div className="city-search-dropdown">
+          <div
+            className="city-search-dropdown"
+            id={listId}
+            role={status === 'results' ? 'listbox' : undefined}
+          >
             {status === 'typing' ? (
               <p>{query.trim().length < MINIMUM_QUERY_LENGTH
                 ? 'Type at least 2 characters to search.'
@@ -153,9 +158,16 @@ export function CitySearch({
             ) : null}
             {status === 'loading' ? <p role="status">Searching cities…</p> : null}
             {status === 'no-results' ? <p role="status">No matching cities found.</p> : null}
-            {status === 'error' ? <p className="city-search-error" role="alert">{errorMessage}</p> : null}
+            {status === 'error' ? (
+              <div className="city-search-feedback">
+                <p className="city-search-error" role="alert">{errorMessage}</p>
+                <button type="button" onClick={() => setRetryVersion((current) => current + 1)}>
+                  Try again
+                </button>
+              </div>
+            ) : null}
             {status === 'results' ? (
-              <ul id={listId} role="listbox">
+              <ul>
                 {results.map((result, index) => (
                   <li key={resultKey(result)}>
                     <button
@@ -197,7 +209,7 @@ function resultKey(result: CitySearchResult): string {
 }
 
 function locationLabel(result: CitySearchResult): string {
-  return result.regionName ? `${result.countryName} · ${result.regionName}` : result.countryName
+  return result.regionName ? `${result.regionName}, ${result.countryName}` : result.countryName
 }
 
 function isAbortError(reason: unknown): boolean {

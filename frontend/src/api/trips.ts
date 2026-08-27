@@ -34,8 +34,8 @@ export function deleteTrip(tripId: string): Promise<void> {
   return request<void>(`/api/trips/${tripId}`, { method: 'DELETE' })
 }
 
-export function addStop(tripId: string, input: AddStopInput): Promise<void> {
-  return request<void>(`/api/trips/${tripId}/stops`, { method: 'POST', body: JSON.stringify(input) })
+export function addStop(tripId: string, input: AddStopInput): Promise<TripStop> {
+  return request<TripStop>(`/api/trips/${tripId}/stops`, { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function moveStop(tripId: string, stopId: string, position: number): Promise<void> {

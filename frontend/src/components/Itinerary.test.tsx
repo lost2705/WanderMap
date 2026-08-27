@@ -146,6 +146,38 @@ describe('Itinerary add stop', () => {
 
     expect(onAddStop).not.toHaveBeenCalled()
   })
+
+  it('preserves the selected city after a failed add and allows retry', async () => {
+    const search = vi.fn<SearchCitiesFunction>().mockResolvedValue([lucca])
+    const onAddStop = vi.fn<(city: CitySearchResult) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('Could not save this stop.'))
+      .mockResolvedValueOnce(undefined)
+    renderItinerary(search, onAddStop)
+
+    const input = screen.getByRole('combobox') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Luc' } })
+    await advanceSearchDebounce()
+    fireEvent.click(screen.getByRole('option'))
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add stop' }))
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('alert').textContent).toBe('Could not save this stop.')
+    expect(input.value).toBe('Lucca')
+    expect(screen.getByText('Selected city')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Add stop' }) as HTMLButtonElement).disabled).toBe(false)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add stop' }))
+      await Promise.resolve()
+    })
+
+    expect(onAddStop).toHaveBeenCalledTimes(2)
+    expect(input.value).toBe('')
+    expect(screen.queryByText('Selected city')).toBeNull()
+  })
 })
 
 describe('Itinerary journal', () => {

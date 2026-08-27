@@ -413,6 +413,9 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
 
     @Test
     void keepsSameNameGeocodingSelectionsAtDifferentLocationsDistinct() throws Exception {
+        long initialMemoryCount = json(request("GET", "/api/trips/map-overview", null))
+                .path("memoryCount")
+                .asLong();
         String tripId = createTrip("Two Florences " + UUID.randomUUID());
 
         JsonNode alabamaStop = addStopWithLocation(tripId, "US", "Florence", 34.7998125, -87.6773125);
@@ -421,11 +424,16 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
 
         String alabamaCityId = alabamaStop.path("city").path("id").asText();
         String southCarolinaCityId = southCarolinaStop.path("city").path("id").asText();
+        assertThat(alabamaStop.path("id").asText()).isNotEqualTo(alabamaAgainStop.path("id").asText());
         assertThat(southCarolinaCityId).isNotEqualTo(alabamaCityId);
         assertThat(alabamaAgainStop.path("city").path("id").asText()).isEqualTo(alabamaCityId);
 
         JsonNode persistedStops = getTrip(tripId).path("stops");
         assertThat(persistedStops).hasSize(3);
+        assertThat(persistedStops).extracting(stop -> stop.path("position").asInt())
+                .containsExactly(1, 2, 3);
+        assertThat(persistedStops).extracting(stop -> stop.path("id").asText())
+                .doesNotHaveDuplicates();
         assertThat(persistedStops.get(0).path("city").path("id").asText()).isEqualTo(alabamaCityId);
         assertThat(persistedStops.get(0).path("city").path("latitude").asDouble()).isEqualTo(34.799813d);
         assertThat(persistedStops.get(0).path("city").path("longitude").asDouble()).isEqualTo(-87.677313d);
@@ -433,6 +441,8 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
         assertThat(persistedStops.get(1).path("city").path("latitude").asDouble()).isEqualTo(34.1954d);
         assertThat(persistedStops.get(1).path("city").path("longitude").asDouble()).isEqualTo(-79.7626d);
         assertThat(persistedStops.get(2).path("city").path("id").asText()).isEqualTo(alabamaCityId);
+        assertThat(json(request("GET", "/api/trips/map-overview", null)).path("memoryCount").asLong())
+                .isEqualTo(initialMemoryCount);
 
         assertThat(request("DELETE", "/api/trips/" + tripId, null).statusCode()).isEqualTo(204);
     }

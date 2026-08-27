@@ -3,7 +3,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEMES, THEME_STORAGE_KEY } from './appearance/theme'
-import type { PlaceDetails, Trip, TripMapOverview, TripSummary } from './types/travel'
+import type { CitySearchResult, PlaceDetails, Trip, TripMapOverview, TripStop, TripSummary } from './types/travel'
+
+vi.mock('./api/cities', () => ({
+  searchCities: vi.fn(),
+}))
 
 vi.mock('./api/places', () => ({
   getPlaceDetails: vi.fn(),
@@ -25,7 +29,7 @@ vi.mock('./api/trips', () => ({
 }))
 
 vi.mock('./features/map/MapView', async () => {
-  const { countryCodesForMap, markersForMap } = await vi.importActual<typeof import('./features/map/mapData')>(
+  const { countryCodesForMap, markersForMap, routesForMap } = await vi.importActual<typeof import('./features/map/mapData')>(
     './features/map/mapData',
   )
 
@@ -41,11 +45,15 @@ vi.mock('./features/map/MapView', async () => {
     }) => {
       const countryCodes = countryCodesForMap(overview, selectedTrip)
       const markers = markersForMap(overview, selectedTrip?.id ?? null)
+      const routes = routesForMap(overview, selectedTrip)
 
       return (
         <div
           data-countries={countryCodes.join(',')}
+          data-city-ids={markers.map((marker) => marker.cityId).join(',')}
+          data-marker-count={markers.length}
           data-markers={markers.flatMap((marker) => marker.visits.map((visit) => visit.tripId)).join(',')}
+          data-route={routes[0]?.coordinates.map((coordinate) => coordinate.join(',')).join('|') ?? ''}
           data-selected-trip={selectedTrip?.id ?? 'global'}
           data-testid="map-state"
         >
@@ -65,6 +73,8 @@ vi.mock('./features/map/MapView', async () => {
 })
 
 import {
+  addStop,
+  createTrip,
   deleteStopPhoto,
   getMapOverview,
   getTrip,
@@ -72,6 +82,7 @@ import {
   updateStopJournal,
   uploadStopPhoto,
 } from './api/trips'
+import { searchCities } from './api/cities'
 import { getPlaceDetails } from './api/places'
 import App from './App'
 
@@ -236,6 +247,7 @@ beforeEach(() => {
   vi.mocked(getMapOverview).mockResolvedValue(overview)
   vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? italyTrip : japanTrip))
   vi.mocked(getPlaceDetails).mockImplementation((cityId) => Promise.resolve(cityId === 'city-rome' ? romePlace : tokyoPlace))
+  vi.mocked(searchCities).mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -400,6 +412,158 @@ describe('App trip selection', () => {
     expect(getMapOverview).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
     expectMapState('italy', 'IT', 'italy')
+  })
+})
+
+describe('App Journey creation and city search flow', () => {
+  it('creates and selects a Journey, appends repeated visits locally, and restores the persisted World overview', async () => {
+    const spainTrip: Trip = {
+      id: 'spain',
+      name: 'Spain 2027',
+      startDate: '2027-04-03',
+      endDate: '2027-04-14',
+      description: 'Barcelona, Valencia, and the Mediterranean coast.',
+      stops: [],
+    }
+    const barcelona: CitySearchResult = {
+      name: 'Barcelona',
+      countryName: 'Spain',
+      regionName: 'Catalonia',
+      countryCode: 'ES',
+      latitude: 41.3851,
+      longitude: 2.1734,
+    }
+    const valencia: CitySearchResult = {
+      name: 'Valencia',
+      countryName: 'Spain',
+      regionName: 'Valencian Community',
+      countryCode: 'ES',
+      latitude: 39.4699,
+      longitude: -0.3763,
+    }
+    const createdStops: TripStop[] = [
+      locatedStop('barcelona-first', 1, 'city-barcelona', barcelona),
+      locatedStop('valencia', 2, 'city-valencia', valencia),
+      locatedStop('barcelona-return', 3, 'city-barcelona', barcelona),
+    ]
+    const finalOverview: TripMapOverview = {
+      visitedCountryCodes: ['ES', 'IT', 'JP'],
+      memoryCount: overview.memoryCount,
+      markers: [
+        ...overview.markers,
+        ...createdStops.map((stop) => ({
+          tripId: 'spain',
+          stopId: stop.id,
+          cityId: stop.city.id,
+          position: stop.position,
+          cityName: stop.city.name,
+          latitude: stop.city.latitude!,
+          longitude: stop.city.longitude!,
+          country: stop.city.country,
+        })),
+      ],
+    }
+    vi.mocked(createTrip).mockResolvedValue(spainTrip)
+    vi.mocked(addStop)
+      .mockResolvedValueOnce(createdStops[0]!)
+      .mockResolvedValueOnce(createdStops[1]!)
+      .mockResolvedValueOnce(createdStops[2]!)
+    vi.mocked(searchCities)
+      .mockResolvedValueOnce([barcelona])
+      .mockResolvedValueOnce([valencia])
+      .mockResolvedValueOnce([barcelona])
+    vi.mocked(getMapOverview).mockReset()
+    vi.mocked(getMapOverview).mockResolvedValueOnce(overview).mockResolvedValue(finalOverview)
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create a new journey' }))
+    expect(screen.getByRole('region', { name: 'Create a journey' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Journey title'), { target: { value: 'Spain 2027' } })
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2027-04-03' } })
+    fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2027-04-14' } })
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Barcelona, Valencia, and the Mediterranean coast.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create journey' }))
+
+    await screen.findByRole('heading', { name: 'Spain 2027' })
+    expect(screen.queryByRole('region', { name: 'Create a journey' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Spain 2027, 0 places' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(createTrip).toHaveBeenCalledWith({
+      name: 'Spain 2027',
+      startDate: '2027-04-03',
+      endDate: '2027-04-14',
+      description: 'Barcelona, Valencia, and the Mediterranean coast.',
+    })
+    expect(listTrips).toHaveBeenCalledTimes(1)
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expect(getMapOverview).toHaveBeenCalledTimes(1)
+
+    await searchSelectAndAdd('Barcelona', 'Catalonia, Spain')
+    await waitFor(() => expect(screen.getByLabelText('Stop 1').textContent).toBe('01'))
+    expect(mapSurface.getAttribute('data-route')).toBe('')
+
+    await searchSelectAndAdd('Valencia', 'Valencian Community, Spain')
+    await waitFor(() => expect(screen.getByLabelText('Stop 2').textContent).toBe('02'))
+    expect(mapSurface.getAttribute('data-route')).toBe('2.1734,41.3851|-0.3763,39.4699')
+
+    await searchSelectAndAdd('Barcelona', 'Catalonia, Spain')
+    await waitFor(() => expect(screen.getByLabelText('Stop 3').textContent).toBe('03'))
+
+    expect(addStop).toHaveBeenCalledTimes(3)
+    expect(addStop).toHaveBeenNthCalledWith(1, 'spain', cityAddInput(barcelona))
+    expect(addStop).toHaveBeenNthCalledWith(2, 'spain', cityAddInput(valencia))
+    expect(addStop).toHaveBeenNthCalledWith(3, 'spain', cityAddInput(barcelona))
+    expect(createdStops[0]!.city.id).toBe(createdStops[2]!.city.id)
+    expect(createdStops[0]!.id).not.toBe(createdStops[2]!.id)
+    expect(screen.getByRole('button', { name: 'Spain 2027, 3 places' }).getAttribute('aria-pressed')).toBe('true')
+    expect(mapSurface.getAttribute('data-selected-trip')).toBe('spain')
+    expect(mapSurface.getAttribute('data-countries')).toBe('ES')
+    expect(mapSurface.getAttribute('data-marker-count')).toBe('3')
+    expect(mapSurface.getAttribute('data-city-ids')).toBe('city-barcelona,city-valencia,city-barcelona')
+    expect(mapSurface.getAttribute('data-route'))
+      .toBe('2.1734,41.3851|-0.3763,39.4699|2.1734,41.3851')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(getTrip).toHaveBeenCalledTimes(1)
+    expect(listTrips).toHaveBeenCalledTimes(1)
+    expect(getMapOverview).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spain 2027, 3 places' }))
+
+    await waitFor(() => expect(mapSurface.getAttribute('data-selected-trip')).toBe('global'))
+    expect(mapSurface.getAttribute('data-countries')).toBe('')
+    expect(mapSurface.getAttribute('data-route')).toBe('')
+    expect(mapSurface.getAttribute('data-marker-count')).toBe('4')
+    expect(screen.getAllByRole('button', { name: 'Open memories for Barcelona' })).toHaveLength(1)
+    expect(screen.getByLabelText('Travel atlas summary').textContent)
+      .toBe('Places4Countries3Journeys3Memories1')
+    expect(screen.getByRole('button', { name: 'Spain 2027, 3 places' }).textContent)
+      .toContain('Barcelona · Valencia')
+    expect(getMapOverview).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  }, 10_000)
+
+  it('keeps the Journey creation draft and map surface after an API failure', async () => {
+    vi.mocked(createTrip).mockRejectedValue(new Error('Journey service is unavailable.'))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create a new journey' }))
+    fireEvent.change(screen.getByLabelText('Journey title'), { target: { value: 'Spain 2027' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create journey' }))
+
+    await waitFor(() => expect(screen.getAllByRole('alert').some((alert) =>
+      alert.textContent?.includes('Journey service is unavailable.'))).toBe(true))
+    expect(screen.getByRole('region', { name: 'Create a journey' })).toBeTruthy()
+    expect(screen.getByLabelText<HTMLInputElement>('Journey title').value).toBe('Spain 2027')
+    expect(screen.queryByRole('button', { name: 'Spain 2027, 0 places' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(createTrip).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1025,6 +1189,47 @@ describe('App appearance', () => {
     expectMapState('japan', 'JP', 'japan')
   })
 })
+
+async function searchSelectAndAdd(query: string, location: string) {
+  const input = screen.getByRole('combobox', { name: 'Where did you go?' }) as HTMLInputElement
+  fireEvent.change(input, { target: { value: query } })
+  await screen.findByText(location, {}, { timeout: 2_000 })
+  fireEvent.click(within(screen.getByRole('listbox')).getByRole('option'))
+  fireEvent.click(screen.getByRole('button', { name: 'Add stop' }))
+  await waitFor(() => expect(input.value).toBe(''))
+}
+
+function locatedStop(
+  id: string,
+  position: number,
+  cityId: string,
+  result: CitySearchResult,
+): TripStop {
+  return {
+    id,
+    position,
+    arrivalDate: null,
+    departureDate: null,
+    note: null,
+    photos: [],
+    city: {
+      id: cityId,
+      name: result.name,
+      latitude: result.latitude,
+      longitude: result.longitude,
+      country: { code: result.countryCode, name: result.countryName },
+    },
+  }
+}
+
+function cityAddInput(result: CitySearchResult) {
+  return {
+    countryCode: result.countryCode,
+    cityName: result.name,
+    latitude: result.latitude,
+    longitude: result.longitude,
+  }
+}
 
 function expectMapState(selectedTrip: string, countries: string, markers: string) {
   const mapState = screen.getByTestId('map-state')
