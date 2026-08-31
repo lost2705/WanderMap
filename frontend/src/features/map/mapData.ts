@@ -84,6 +84,26 @@ export interface TripRouteFeatureCollection {
   features: TripRouteFeature[]
 }
 
+export interface WorldPlaceFeatureCollection {
+  type: 'FeatureCollection'
+  features: WorldPlaceFeature[]
+}
+
+export interface WorldPlaceFeature {
+  type: 'Feature'
+  properties: {
+    cityId: string
+    cityName: string
+    countryCode: string
+    countryName: string
+    visitCount: number
+  }
+  geometry: {
+    type: 'Point'
+    coordinates: MapCoordinate
+  }
+}
+
 interface TripRouteFeature {
   type: 'Feature'
   properties: {
@@ -138,11 +158,11 @@ export type SelectedTripCameraTarget =
     }
 
 export function countryCodesForMap(
-  _overview: TripMapOverview | null,
+  overview: TripMapOverview | null,
   selectedTrip: Trip | null,
 ): string[] {
   if (!selectedTrip) {
-    return []
+    return [...new Set(overview?.visitedCountryCodes ?? [])].sort()
   }
 
   return [
@@ -161,7 +181,9 @@ export function markersForMap(
 
 export function placesForGlobalMap(overview: TripMapOverview | null): DisplayMarker[] {
   const places = new Map<string, DisplayMarker>()
-  const markers = [...(overview?.markers ?? [])].sort(comparePlaceSourceMarkers)
+  const markers = [...(overview?.markers ?? [])]
+    .filter(hasRenderableLocation)
+    .sort(comparePlaceSourceMarkers)
 
   for (const marker of markers) {
     const visit: PlaceVisit = {
@@ -191,6 +213,35 @@ export function placesForGlobalMap(overview: TripMapOverview | null): DisplayMar
   }
 
   return [...places.values()]
+}
+
+function hasRenderableLocation(marker: TripMapOverview['markers'][number]): boolean {
+  return Number.isFinite(marker.latitude)
+    && Number.isFinite(marker.longitude)
+    && marker.latitude >= -90
+    && marker.latitude <= 90
+    && marker.longitude >= -180
+    && marker.longitude <= 180
+}
+
+export function worldPlaceFeatureCollection(overview: TripMapOverview | null): WorldPlaceFeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: placesForGlobalMap(overview).map((place) => ({
+      type: 'Feature',
+      properties: {
+        cityId: place.cityId,
+        cityName: place.cityName,
+        countryCode: place.country.code,
+        countryName: place.country.name,
+        visitCount: place.visits.length,
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: place.coordinate,
+      },
+    })),
+  }
 }
 
 export function markersForSelectedTrip(
@@ -269,10 +320,36 @@ export function markerOffsetsForScreenCollisions(
  * changes the order of the stops that can be drawn.
  */
 export function routesForMap(
-  _overview: TripMapOverview | null,
+  overview: TripMapOverview | null,
   selectedTrip: Trip | null,
+  showGlobalRoutes = false,
 ): TripRoute[] {
-  return routesForSelectedTrip(selectedTrip)
+  return selectedTrip
+    ? routesForSelectedTrip(selectedTrip)
+    : showGlobalRoutes
+      ? routesForOverview(overview)
+      : []
+}
+
+export function routesForOverview(overview: TripMapOverview | null): TripRoute[] {
+  const markersByTrip = new Map<string, TripMapMarker[]>()
+  for (const marker of overview?.markers ?? []) {
+    const tripMarkers = markersByTrip.get(marker.tripId) ?? []
+    tripMarkers.push(marker)
+    markersByTrip.set(marker.tripId, tripMarkers)
+  }
+
+  return [...markersByTrip.entries()]
+    .sort(([firstTripId], [secondTripId]) => firstTripId.localeCompare(secondTripId))
+    .flatMap(([tripId, markers]) => {
+      const route = routeForStops(tripId, markers.map((marker) => ({
+        stopId: marker.stopId,
+        position: marker.position,
+        latitude: marker.latitude,
+        longitude: marker.longitude,
+      })), false)
+      return route ? [route] : []
+    })
 }
 
 export function routesForSelectedTrip(selectedTrip: Trip | null): TripRoute[] {

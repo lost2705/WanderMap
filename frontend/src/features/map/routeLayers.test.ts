@@ -16,6 +16,7 @@ const sourceSetData = vi.fn()
 const sources = new Map<string, { setData: typeof sourceSetData }>()
 const layers = new Map<string, { id: string; paint?: Record<string, unknown> }>()
 const fakeMap = {
+  getStyle: () => ({ layers: [{ id: 'base-labels', type: 'symbol', 'source-layer': 'place' }] }),
   addLayer: vi.fn((layer: { id: string; paint?: Record<string, unknown> }) => layers.set(layer.id, layer)),
   addSource: vi.fn((id: string) => sources.set(id, { setData: sourceSetData })),
   getLayer: vi.fn((id: string) => layers.get(id)),
@@ -42,6 +43,8 @@ describe('trip route layers', () => {
       data: { type: 'FeatureCollection', features: [] },
     })
     expect(fakeMap.addLayer).toHaveBeenCalledTimes(2)
+    expect(fakeMap.addLayer).toHaveBeenNthCalledWith(1, expect.any(Object), undefined)
+    expect(fakeMap.addLayer).toHaveBeenNthCalledWith(2, expect.any(Object), undefined)
     expect(layers.has(ROUTE_CASING_LAYER_ID)).toBe(true)
     expect(layers.has(ROUTE_LINE_LAYER_ID)).toBe(true)
     expect(layers.get(ROUTE_LINE_LAYER_ID)?.paint?.['line-color']).toEqual(['get', 'identityColor'])
@@ -72,22 +75,25 @@ describe('trip route layers', () => {
     )
   })
 
-  it('clears global routes across global, Italy, Japan, and global transitions', () => {
+  it('updates the persistent source across World toggle and selected-Journey transitions', () => {
     ensureTripRouteLayers(fakeMap)
-    const globalData = routeFeatureCollection(routesForMap(overview, null))
+    const hiddenGlobalData = routeFeatureCollection(routesForMap(overview, null, false))
+    const visibleGlobalData = routeFeatureCollection(routesForMap(overview, null, true))
     const italyData = routeFeatureCollection(routesForMap(overview, italyTrip))
-    const japanData = routeFeatureCollection(routesForMap(overview, japanTrip))
 
-    updateTripRouteData(fakeMap, globalData)
+    updateTripRouteData(fakeMap, hiddenGlobalData)
+    updateTripRouteData(fakeMap, visibleGlobalData)
     updateTripRouteData(fakeMap, italyData)
-    updateTripRouteData(fakeMap, japanData)
-    updateTripRouteData(fakeMap, globalData)
+    updateTripRouteData(fakeMap, hiddenGlobalData)
 
     expect(sourceSetData).toHaveBeenCalledTimes(4)
-    expect(sourceSetData.mock.calls.map(([data]) => data.features.length)).toEqual([0, 1, 1, 0])
+    expect(sourceSetData.mock.calls.map(([data]) => data.features.length)).toEqual([0, 2, 1, 0])
+    expect(sourceSetData.mock.calls[1]?.[0].features.map((feature: { properties: { tripId: string } }) => (
+      feature.properties.tripId
+    ))).toEqual(['italy', 'japan'])
     expect(sourceSetData.mock.calls[2]?.[0].features[0]?.geometry.coordinates).toEqual([
-      [139.6503, 35.6762],
-      [135.7681, 35.0116],
+      [12.4964, 41.9028],
+      [11.2558, 43.7696],
     ])
     expect(fakeMap.addSource).toHaveBeenCalledTimes(1)
     expect(fakeMap.addLayer).toHaveBeenCalledTimes(2)
@@ -114,18 +120,6 @@ const italyTrip: Trip = {
   stops: [
     stop('rome', 1, 41.9028, 12.4964, 'IT'),
     stop('florence', 2, 43.7696, 11.2558, 'IT'),
-  ],
-}
-
-const japanTrip: Trip = {
-  id: 'japan',
-  name: 'Japan',
-  startDate: null,
-  endDate: null,
-  description: null,
-  stops: [
-    stop('tokyo', 1, 35.6762, 139.6503, 'JP'),
-    stop('kyoto', 2, 35.0116, 135.7681, 'JP'),
   ],
 }
 

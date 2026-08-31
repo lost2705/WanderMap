@@ -12,10 +12,12 @@ import {
   placesForGlobalMap,
   routeFeatureCollection,
   routesForMap,
+  routesForOverview,
   routesForSelectedTrip,
   selectedTripCameraTarget,
   tripVisualIdentity,
   toMapCoordinate,
+  worldPlaceFeatureCollection,
 } from './mapData'
 import type { Trip, TripMapOverview } from '../../types/travel'
 
@@ -47,9 +49,9 @@ const overview: TripMapOverview = {
 }
 
 describe('map data', () => {
-  it('disables country highlighting when no trip is selected', () => {
+  it('uses all unique overview countries when no trip is selected', () => {
     expect(countryCodesForMap(null, null)).toEqual([])
-    expect(countryCodesForMap(overview, null)).toEqual([])
+    expect(countryCodesForMap(overview, null)).toEqual(['FR', 'IT'])
   })
 
   it('uses only the selected single-country trip countries', () => {
@@ -154,6 +156,31 @@ describe('map data', () => {
     expect(routesForMap(routeOverview(), null)).toEqual([])
   })
 
+  it('builds distinct Journey routes only when the World route preference is enabled', () => {
+    const worldRoutes = routesForMap(routeOverview(), null, true)
+
+    expect(worldRoutes.map((route) => route.tripId)).toEqual(['italy', 'japan'])
+    expect(worldRoutes.every((route) => route.isSelectedTrip === false)).toBe(true)
+    expect(worldRoutes.map((route) => route.identityColor))
+      .toEqual(['italy', 'japan'].map((tripId) => tripVisualIdentity(tripId).color))
+    expect(routesForOverview(null)).toEqual([])
+  })
+
+  it('always returns the selected Journey route regardless of the World route preference', () => {
+    const selectedTrip = tripWithRouteStops(
+      'japan',
+      ['tokyo', 1, 35.6762, 139.6503],
+      ['kyoto', 2, 35.0116, 135.7681],
+    )
+
+    expect(routesForMap(routeOverview(), selectedTrip, false))
+      .toEqual(routesForMap(routeOverview(), selectedTrip, true))
+    expect(routesForMap(routeOverview(), selectedTrip, true)[0]).toMatchObject({
+      tripId: 'japan',
+      isSelectedTrip: true,
+    })
+  })
+
   it('derives a stable visual identity and carries it into GeoJSON presentation data', () => {
     expect(tripVisualIdentity('italy')).toEqual(tripVisualIdentity('italy'))
     expect(tripVisualIdentity('italy')).not.toEqual(tripVisualIdentity('japan'))
@@ -182,6 +209,22 @@ describe('map data', () => {
     expect(routesForMap(sharedOverview, null)).toEqual([])
   })
 
+  it('creates one World GeoJSON point per City while retaining its visit count', () => {
+    const data = worldPlaceFeatureCollection(routeOverview(true))
+    const romeFeatures = data.features.filter((feature) => feature.properties.cityId === 'city-rome')
+
+    expect(romeFeatures).toHaveLength(1)
+    expect(romeFeatures[0]).toMatchObject({
+      properties: {
+        cityName: 'Rome',
+        countryCode: 'IT',
+        countryName: 'Italy',
+        visitCount: 2,
+      },
+      geometry: { type: 'Point', coordinates: [12.4964, 41.9028] },
+    })
+  })
+
   it('keeps distinct City IDs separate even at identical coordinates', () => {
     const distinctPlaces = placesForGlobalMap({
       visitedCountryCodes: ['IT'],
@@ -195,6 +238,22 @@ describe('map data', () => {
     expect(distinctPlaces).toHaveLength(2)
     expect(distinctPlaces.map((place) => place.cityId)).toEqual(['city-a', 'city-b'])
     expect(distinctPlaces[0]?.coordinate).toEqual(distinctPlaces[1]?.coordinate)
+  })
+
+  it('omits malformed or out-of-world coordinates from the World footprint safely', () => {
+    const invalidOverview: TripMapOverview = {
+      visitedCountryCodes: ['IT'],
+      memoryCount: 0,
+      markers: [
+        routeMarker('italy', 'rome', 1, 'Rome', 41.9028, 12.4964, 'IT', 'Italy', 'city-rome'),
+        routeMarker('italy', 'nan', 2, 'Invalid', Number.NaN, 11.2, 'IT', 'Italy', 'city-nan'),
+        routeMarker('italy', 'latitude', 3, 'Invalid', 91, 11.2, 'IT', 'Italy', 'city-latitude'),
+        routeMarker('italy', 'longitude', 4, 'Invalid', 43.7, 181, 'IT', 'Italy', 'city-longitude'),
+      ],
+    }
+
+    expect(placesForGlobalMap(invalidOverview).map((place) => place.cityId)).toEqual(['city-rome'])
+    expect(worldPlaceFeatureCollection(invalidOverview).features).toHaveLength(1)
   })
 
   it('separates exact-coordinate marker collisions and keeps every marker addressable', () => {

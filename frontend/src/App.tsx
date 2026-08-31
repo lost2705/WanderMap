@@ -73,6 +73,7 @@ export default function App({ initialTheme }: AppProps) {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
   const [atlasView, setAtlasView] = useState<AtlasView>({ kind: 'map' })
+  const [worldResetKey, setWorldResetKey] = useState(0)
   const [placeDetails, setPlaceDetails] = useState<PlaceDetails | null>(null)
   const [isPlaceDetailsLoading, setIsPlaceDetailsLoading] = useState(false)
   const [placeDetailsError, setPlaceDetailsError] = useState<string | null>(null)
@@ -558,6 +559,7 @@ export default function App({ initialTheme }: AppProps) {
   }
 
   function handleMemoryWorld() {
+    setWorldResetKey((current) => current + 1)
     setError(null)
     setFormMode(null)
     setSelectedTrip(null)
@@ -715,6 +717,7 @@ export default function App({ initialTheme }: AppProps) {
           </div>
         ) : null}
         <MapView
+          worldResetKey={worldResetKey}
           overview={overview}
           selectedTrip={activeSelectedTrip}
           trips={trips}

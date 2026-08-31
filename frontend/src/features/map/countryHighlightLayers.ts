@@ -3,7 +3,8 @@ import { countryFeatureFilter } from './mapData'
 
 export const COUNTRY_HIGHLIGHT_SOURCE_ID = 'visited-country-highlights'
 export const COUNTRY_HIGHLIGHT_LAYER_ID = 'visited-country-fill'
-export const COUNTRY_HIGHLIGHT_OPACITY = 0.22
+export const WORLD_COUNTRY_HIGHLIGHT_OPACITY = 0
+export const JOURNEY_COUNTRY_HIGHLIGHT_OPACITY = 0.22
 
 export interface CountryBoundaryData {
   type: 'FeatureCollection'
@@ -31,6 +32,7 @@ export function ensureCountryHighlightLayer(
   data: CountryBoundaryData,
   countryCodes: string[],
   fillColor: string,
+  fillOpacity: number,
 ): void {
   if (!map.getSource(COUNTRY_HIGHLIGHT_SOURCE_ID)) {
     map.addSource(COUNTRY_HIGHLIGHT_SOURCE_ID, {
@@ -48,7 +50,7 @@ export function ensureCountryHighlightLayer(
       paint: {
         'fill-antialias': true,
         'fill-color': fillColor,
-        'fill-opacity': COUNTRY_HIGHLIGHT_OPACITY,
+        'fill-opacity': fillOpacity,
       },
     }, countryHighlightInsertionLayerId(map.getStyle()?.layers ?? []))
   }
@@ -63,6 +65,12 @@ export function updateCountryHighlightFilter(map: maplibregl.Map, countryCodes: 
 export function updateCountryHighlightColor(map: maplibregl.Map, fillColor: string): void {
   if (map.getLayer(COUNTRY_HIGHLIGHT_LAYER_ID)) {
     map.setPaintProperty(COUNTRY_HIGHLIGHT_LAYER_ID, 'fill-color', fillColor)
+  }
+}
+
+export function updateCountryHighlightOpacity(map: maplibregl.Map, fillOpacity: number): void {
+  if (map.getLayer(COUNTRY_HIGHLIGHT_LAYER_ID)) {
+    map.setPaintProperty(COUNTRY_HIGHLIGHT_LAYER_ID, 'fill-opacity', fillOpacity)
   }
 }
 

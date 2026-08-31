@@ -1,6 +1,7 @@
 import type * as maplibregl from 'maplibre-gl'
 import { routeFeatureCollection } from './mapData'
 import type { TripRouteFeatureCollection } from './mapData'
+import { WORLD_PLACE_AREA_CORE_LAYER_ID } from './worldPlaceLayers'
 
 export const ROUTE_SOURCE_ID = 'trip-routes'
 export const ROUTE_CASING_LAYER_ID = 'trip-route-casing'
@@ -8,6 +9,8 @@ export const ROUTE_LINE_LAYER_ID = 'trip-route-lines'
 const ROUTE_IDENTITY_COLOR: maplibregl.ExpressionSpecification = ['get', 'identityColor']
 
 export function ensureTripRouteLayers(map: maplibregl.Map): void {
+  // Travel routes sit above the basemap, but below interactive World cores/counts.
+  const beforeId = map.getLayer(WORLD_PLACE_AREA_CORE_LAYER_ID) ? WORLD_PLACE_AREA_CORE_LAYER_ID : undefined
   if (!map.getSource(ROUTE_SOURCE_ID)) {
     map.addSource(ROUTE_SOURCE_ID, {
       type: 'geojson',
@@ -29,7 +32,7 @@ export function ensureTripRouteLayers(map: maplibregl.Map): void {
         'line-opacity': 0.82,
         'line-offset': ['get', 'lineOffset'],
       },
-    })
+    }, beforeId)
   }
   if (!map.getLayer(ROUTE_LINE_LAYER_ID)) {
     map.addLayer({
@@ -46,7 +49,7 @@ export function ensureTripRouteLayers(map: maplibregl.Map): void {
         'line-opacity': ['get', 'lineOpacity'],
         'line-offset': ['get', 'lineOffset'],
       },
-    })
+    }, beforeId)
   }
 }
 
