@@ -23,6 +23,7 @@ import { MemoryView } from './components/MemoryView'
 import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
+import { WorldPlaceNavigation } from './components/WorldPlaceNavigation'
 import { orderedMemoryPhotos, visitForTripStop } from './components/memoryPresentation'
 import { MapView } from './features/map/MapView'
 import type {
@@ -85,6 +86,9 @@ export default function App({ initialTheme }: AppProps) {
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
   const navigationToggleRef = useRef<HTMLButtonElement>(null)
   const navigationCloseRef = useRef<HTMLButtonElement>(null)
+  const placeDetailsCloseRef = useRef<HTMLButtonElement>(null)
+  const placeNavigationTriggerRef = useRef<HTMLElement | null>(null)
+  const focusOpenedPlaceRef = useRef(false)
   const contentAreaRef = useRef<HTMLDivElement>(null)
   const restoreNavigationFocusRef = useRef(false)
   const activeSelectedTrip = selectedTripId !== null && selectedTrip?.id === selectedTripId
@@ -98,6 +102,13 @@ export default function App({ initialTheme }: AppProps) {
     ? placeDetails
     : null
   const activeMemory = memoryForView(atlasView, activePlaceDetails, activeSelectedTrip)
+
+  useEffect(() => {
+    if (atlasView.kind === 'place' && focusOpenedPlaceRef.current) {
+      focusOpenedPlaceRef.current = false
+      placeDetailsCloseRef.current?.focus()
+    }
+  }, [atlasView])
 
   useEffect(() => {
     void loadApplication()
@@ -259,6 +270,25 @@ export default function App({ initialTheme }: AppProps) {
     setIsNavigationOpen(false)
     setAtlasView({ kind: 'place', cityId })
   }, [])
+
+  function handleOpenPlaceFromNavigation(cityId: string) {
+    placeNavigationTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null
+    focusOpenedPlaceRef.current = true
+    handleOpenPlace(cityId)
+  }
+
+  function handleClosePlace() {
+    setAtlasView({ kind: 'map' })
+    const trigger = placeNavigationTriggerRef.current
+    placeNavigationTriggerRef.current = null
+    if (window.matchMedia?.(MOBILE_NAVIGATION_QUERY).matches) {
+      navigationToggleRef.current?.focus()
+    } else if (trigger?.isConnected) {
+      trigger.focus()
+    }
+  }
 
   function handleOpenPlaceMemory(visit: PlaceVisit) {
     if (!activePlaceDetails) {
@@ -628,7 +658,9 @@ export default function App({ initialTheme }: AppProps) {
             setFormMode('create')
           }}
           onSelect={handleSelectTrip}
-        />
+        >
+          <WorldPlaceNavigation overview={overview} onSelectPlace={handleOpenPlaceFromNavigation} />
+        </TripList>
         {formMode === 'create' ? (
           <section className="editor-panel" aria-label="Create a journey">
             <p className="eyebrow">Start a new story</p>
@@ -725,10 +757,11 @@ export default function App({ initialTheme }: AppProps) {
         />
         {selectedTripId === null && atlasView.kind === 'place' ? (
           <PlaceDetailsPanel
+            closeButtonRef={placeDetailsCloseRef}
             details={activePlaceDetails}
             error={placeDetailsError}
             isLoading={isPlaceDetailsLoading}
-            onClose={() => setAtlasView({ kind: 'map' })}
+            onClose={handleClosePlace}
             onRetry={() => setPlaceDetailsRequestVersion((version) => version + 1)}
             onViewMemory={handleOpenPlaceMemory}
             onViewTrip={handleViewTrip}

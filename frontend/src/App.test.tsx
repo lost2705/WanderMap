@@ -667,6 +667,32 @@ describe('App responsive navigation', () => {
     expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
   })
 
+  it('opens a visited place from the mobile drawer and restores focus outside the closed drawer', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+    const navigation = screen.getByRole('complementary', { name: 'Journey navigation' })
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+
+    fireEvent.click(openButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Visited places — 2 places' }))
+    const rome = screen.getByRole('button', { name: 'Open Rome, Italy — 1 visit' })
+    rome.focus()
+    rome.click()
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close place details' }))
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    expect(document.activeElement).toBe(openButton)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
   it('keeps the desktop sidebar non-modal and the single map surface available', async () => {
     stubNavigationViewport(false)
     render(<App />)
@@ -685,6 +711,37 @@ describe('App responsive navigation', () => {
 })
 
 describe('App global place details', () => {
+  it('opens the existing Place Details from keyboard-focusable World navigation without resetting the map', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    expect(screen.queryByRole('region', { name: 'Visited places' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    const navigation = screen.getByRole('region', { name: 'Visited places' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Visited places — 2 places' }))
+    const rome = within(navigation).getByRole('button', { name: 'Open Rome, Italy — 1 visit' })
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Appearance' }), { target: { value: 'ocean' } })
+    expect(within(navigation).getByRole('button', { name: 'Visited places — 2 places' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+
+    rome.focus()
+    expect(document.activeElement).toBe(rome)
+    rome.click()
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(getPlaceDetails).toHaveBeenCalledWith('city-rome', expect.any(AbortSignal))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close place details' }))
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(mapSurface.getAttribute('data-world-reset-key')).toBe('0')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    expect(document.activeElement).toBe(rome)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(mapSurface.getAttribute('data-world-reset-key')).toBe('0')
+  })
+
   it('opens a global marker through loading and renders its place memories', async () => {
     const request = deferred<PlaceDetails>()
     vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)

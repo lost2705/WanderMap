@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
 import type { TripMapOverview, TripSummary } from '../types/travel'
 import { formatCalendarDateRange } from '../utils/calendarDate'
 
 interface TripListProps {
+  children?: ReactNode
   trips: TripSummary[]
   overview: TripMapOverview | null
   selectedTripId: string | null
@@ -10,7 +12,7 @@ interface TripListProps {
   onCreate: () => void
 }
 
-export function TripList({ trips, overview, selectedTripId, isLoading, onSelect, onCreate }: TripListProps) {
+export function TripList({ children, trips, overview, selectedTripId, isLoading, onSelect, onCreate }: TripListProps) {
   const placeCount = new Set((overview?.markers ?? []).map((marker) => marker.cityId)).size
   const isGlobalOverview = selectedTripId === null
 
@@ -60,6 +62,7 @@ export function TripList({ trips, overview, selectedTripId, isLoading, onSelect,
       {!isLoading && isGlobalOverview && trips.length > 0 ? (
         <p className="journey-selection-hint">Select a journey to open its travel timeline.</p>
       ) : null}
+      {!isLoading && isGlobalOverview ? children : null}
       {!isLoading && isGlobalOverview ? (
         <section className="atlas-summary" aria-labelledby="atlas-stats-heading">
           <p className="eyebrow" id="atlas-stats-heading">Stats</p>

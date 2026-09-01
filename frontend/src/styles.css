@@ -330,6 +330,45 @@ textarea:focus-visible {
   line-height: 1.48;
 }
 
+.world-place-navigation {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.7rem;
+}
+
+.visited-places-toggle {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  text-align: left;
+}
+
+.visited-place-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.visited-place-link {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.visited-place-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.visited-place-copy .trip-list-item-name {
+  font-size: 0.82rem;
+}
+
 .atlas-summary {
   margin-top: auto;
   border-top: 1px solid var(--color-border);
@@ -1757,6 +1796,8 @@ textarea:focus {
   }
 
   .journey-create,
+  .visited-places-toggle,
+  .visited-place-link,
   .appearance-control select {
     min-height: 2.75rem;
   }
