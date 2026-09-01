@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEMES, THEME_STORAGE_KEY } from './appearance/theme'
 import { ApiError } from './api/client'
@@ -377,6 +377,34 @@ describe('App initial loading resilience', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Trips unavailable.')
     expect(screen.queryByRole('button', { name: 'Italy, 1 place' })).toBeNull()
     expect(screen.queryByLabelText('World travel statistics')).toBeNull()
+    expectMapState('global', '', '')
+  })
+
+  it('ignores optional results that resolve after the same load iteration has failed core', async () => {
+    const profileRequest = deferred<TravelProfile>()
+    const bucketListRequest = deferred<BucketListItem[]>()
+    vi.mocked(listTrips).mockRejectedValue(new Error('Trips unavailable.'))
+    vi.mocked(getTravelProfile).mockReturnValue(profileRequest.promise)
+    vi.mocked(listBucketListItems).mockReturnValue(bucketListRequest.promise)
+
+    render(<App />)
+
+    const fatalAlert = await screen.findByRole('alert')
+    expect(fatalAlert.textContent).toContain('Trips unavailable.')
+
+    await act(async () => {
+      profileRequest.resolve(travelProfile)
+      bucketListRequest.resolve([optionalKyotoItem])
+      await Promise.all([profileRequest.promise, bucketListRequest.promise])
+      await Promise.resolve()
+    })
+
+    expect(screen.getByRole('alert')).toBe(fatalAlert)
+    expect(screen.getByRole('alert').textContent).toContain('Trips unavailable.')
+    expect(screen.queryByRole('button', { name: 'Italy, 1 place' })).toBeNull()
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
+    expect(screen.queryByRole('button', { name: /KyotoJapanWant to visit/ })).toBeNull()
+    expect(screen.getByText('Save places that are still calling you.')).toBeTruthy()
     expectMapState('global', '', '')
   })
 })

@@ -340,12 +340,33 @@ export default function App({ initialTheme }: AppProps) {
   async function loadApplication(preferredTripId?: string) {
     const loadVersion = applicationLoadVersionRef.current + 1
     applicationLoadVersionRef.current = loadVersion
+    let coreSucceeded = false
     setIsLoading(true)
     setBucketListLoadError(null)
     const optionalWorldData = Promise.allSettled([
       getTravelProfile(),
       listBucketListItems(),
     ] as const)
+    let settledOptionalWorldData: Awaited<typeof optionalWorldData> | null = null
+
+    function applyOptionalWorldData([profileResult, bucketListResult]: Awaited<typeof optionalWorldData>) {
+      if (!coreSucceeded || applicationLoadVersionRef.current !== loadVersion) {
+        return
+      }
+      setTravelProfile(profileResult.status === 'fulfilled' ? profileResult.value : null)
+      if (bucketListResult.status === 'fulfilled') {
+        setBucketListItems(bucketListResult.value)
+        setBucketListLoadError(null)
+      } else {
+        setBucketListItems([])
+        setBucketListLoadError(BUCKET_LIST_UNAVAILABLE_MESSAGE)
+      }
+    }
+
+    void optionalWorldData.then((result) => {
+      settledOptionalWorldData = result
+      applyOptionalWorldData(result)
+    })
     try {
       const [nextTrips, nextOverview] = await Promise.all([
         listTrips(),
@@ -354,6 +375,7 @@ export default function App({ initialTheme }: AppProps) {
       if (applicationLoadVersionRef.current !== loadVersion) {
         return
       }
+      coreSucceeded = true
       setTrips(nextTrips)
       setOverview(nextOverview)
       setTravelProfile(null)
@@ -362,20 +384,11 @@ export default function App({ initialTheme }: AppProps) {
         const candidate = preferredTripId ?? current
         return candidate && nextTrips.some((trip) => trip.id === candidate) ? candidate : (nextTrips[0]?.id ?? null)
       })
-      void optionalWorldData.then(([profileResult, bucketListResult]) => {
-        if (applicationLoadVersionRef.current !== loadVersion) {
-          return
-        }
-        setTravelProfile(profileResult.status === 'fulfilled' ? profileResult.value : null)
-        if (bucketListResult.status === 'fulfilled') {
-          setBucketListItems(bucketListResult.value)
-          setBucketListLoadError(null)
-        } else {
-          setBucketListItems([])
-          setBucketListLoadError(BUCKET_LIST_UNAVAILABLE_MESSAGE)
-        }
-      })
+      if (settledOptionalWorldData) {
+        applyOptionalWorldData(settledOptionalWorldData)
+      }
     } catch (reason) {
+      coreSucceeded = false
       if (applicationLoadVersionRef.current === loadVersion) {
         setTravelProfile(null)
         setBucketListItems([])
