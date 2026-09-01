@@ -7,6 +7,7 @@
   --radius-large: 1rem;
   --sidebar-width: clamp(20rem, 26vw, 23rem);
   --color-map-marker-label: #fff;
+  --color-map-cluster-text: #fff;
   --filter-map-control-icon: none;
 }
 
@@ -46,10 +47,21 @@
   --color-map-marker: #bd5426;
   --color-map-marker-border: #fffdf8;
   --color-map-marker-ring: rgb(255 253 248 / 58%);
+  --color-map-visited-area: #d97745;
+  --color-map-visited-area-core: #b94f24;
   --color-map-route: #bd5426;
   --color-map-country-fill: #df8a5f;
   --color-map-country-line: #98441f;
-  --filter-map-canvas: saturate(0.72) sepia(0.08) brightness(1.04) contrast(0.94);
+  --color-map-basemap-land: #eee9dd;
+  --color-map-basemap-water: #c7d9db;
+  --color-map-basemap-terrain: #dde2d5;
+  --color-map-basemap-label: #304955;
+  --color-map-basemap-label-muted: #65767b;
+  --color-map-basemap-label-halo: #f6f1e7;
+  --color-map-basemap-boundary: #899597;
+  --color-map-basemap-road: #c8b8a5;
+  --opacity-map-basemap-relief: 0.28;
+  --filter-map-canvas: none;
 
   --shadow-brand: 0 4px 12px rgb(104 63 42 / 18%);
   --shadow-selected: 0 5px 18px rgb(74 57 43 / 7%);
@@ -94,10 +106,21 @@
   --color-map-marker: #4f775f;
   --color-map-marker-border: #fbfcf6;
   --color-map-marker-ring: rgb(251 252 246 / 62%);
+  --color-map-visited-area: #6f927e;
+  --color-map-visited-area-core: #426b56;
   --color-map-route: #4f775f;
   --color-map-country-fill: #7fa18b;
   --color-map-country-line: #496b58;
-  --filter-map-canvas: saturate(0.68) sepia(0.08) hue-rotate(350deg) brightness(1.02) contrast(0.95);
+  --color-map-basemap-land: #e8ede4;
+  --color-map-basemap-water: #c2d4d0;
+  --color-map-basemap-terrain: #d4dfd4;
+  --color-map-basemap-label: #2f4940;
+  --color-map-basemap-label-muted: #60736b;
+  --color-map-basemap-label-halo: #f1f4eb;
+  --color-map-basemap-boundary: #83958c;
+  --color-map-basemap-road: #b8c3b3;
+  --opacity-map-basemap-relief: 0.24;
+  --filter-map-canvas: none;
 
   --shadow-brand: 0 4px 12px rgb(51 77 62 / 18%);
   --shadow-selected: 0 5px 18px rgb(49 72 59 / 9%);
@@ -142,10 +165,21 @@
   --color-map-marker: #245e72;
   --color-map-marker-border: #fbfcfa;
   --color-map-marker-ring: rgb(251 252 250 / 62%);
+  --color-map-visited-area: #3f8195;
+  --color-map-visited-area-core: #245e72;
   --color-map-route: #245e72;
   --color-map-country-fill: #5f92a1;
   --color-map-country-line: #2c6577;
-  --filter-map-canvas: saturate(0.7) sepia(0.03) hue-rotate(350deg) brightness(1.01) contrast(0.96);
+  --color-map-basemap-land: #e7edeb;
+  --color-map-basemap-water: #bdd4d9;
+  --color-map-basemap-terrain: #d3e0dc;
+  --color-map-basemap-label: #274856;
+  --color-map-basemap-label-muted: #637a82;
+  --color-map-basemap-label-halo: #eff4f1;
+  --color-map-basemap-boundary: #81989c;
+  --color-map-basemap-road: #b7c4c0;
+  --opacity-map-basemap-relief: 0.22;
+  --filter-map-canvas: none;
 
   --shadow-brand: 0 4px 12px rgb(32 75 91 / 18%);
   --shadow-selected: 0 5px 18px rgb(35 71 83 / 9%);
@@ -190,10 +224,21 @@
   --color-map-marker: #6d5a84;
   --color-map-marker-border: #fffdfb;
   --color-map-marker-ring: rgb(255 253 251 / 62%);
+  --color-map-visited-area: #89739d;
+  --color-map-visited-area-core: #66527d;
   --color-map-route: #6d5a84;
   --color-map-country-fill: #9787aa;
   --color-map-country-line: #655477;
-  --filter-map-canvas: saturate(0.62) sepia(0.04) hue-rotate(5deg) brightness(1.01) contrast(0.95);
+  --color-map-basemap-land: #eceaed;
+  --color-map-basemap-water: #cbd1dc;
+  --color-map-basemap-terrain: #dcdde3;
+  --color-map-basemap-label: #413d52;
+  --color-map-basemap-label-muted: #706b7c;
+  --color-map-basemap-label-halo: #f3f0f3;
+  --color-map-basemap-boundary: #92909d;
+  --color-map-basemap-road: #c5bec6;
+  --opacity-map-basemap-relief: 0.2;
+  --filter-map-canvas: none;
 
   --shadow-brand: 0 4px 12px rgb(78 60 94 / 18%);
   --shadow-selected: 0 5px 18px rgb(64 50 76 / 9%);
@@ -238,10 +283,21 @@
   --color-map-marker: #7a3344;
   --color-map-marker-border: #fffaf6;
   --color-map-marker-ring: rgb(255 250 246 / 62%);
+  --color-map-visited-area: #9a5061;
+  --color-map-visited-area-core: #773445;
   --color-map-route: #7a3344;
   --color-map-country-fill: #a36570;
   --color-map-country-line: #713040;
-  --filter-map-canvas: saturate(0.64) sepia(0.09) hue-rotate(322deg) brightness(1.01) contrast(0.95);
+  --color-map-basemap-land: #eee8e2;
+  --color-map-basemap-water: #cdd8d7;
+  --color-map-basemap-terrain: #dddcd2;
+  --color-map-basemap-label: #493a41;
+  --color-map-basemap-label-muted: #756a6e;
+  --color-map-basemap-label-halo: #f5eee8;
+  --color-map-basemap-boundary: #978b8e;
+  --color-map-basemap-road: #cdbcb2;
+  --opacity-map-basemap-relief: 0.22;
+  --filter-map-canvas: none;
 
   --shadow-brand: 0 4px 12px rgb(91 40 53 / 18%);
   --shadow-selected: 0 5px 18px rgb(79 43 51 / 9%);
@@ -284,12 +340,24 @@
   --color-photo-control-text: #fff;
   --color-map-canvas: #20333e;
   --color-map-marker: #f09a68;
+  --color-map-cluster-text: #101a24;
   --color-map-marker-border: #f3ede2;
   --color-map-marker-ring: rgb(243 237 226 / 48%);
+  --color-map-visited-area: #f09a68;
+  --color-map-visited-area-core: #ffc09c;
   --color-map-route: #f09a68;
   --color-map-country-fill: #e18a62;
   --color-map-country-line: #ffc09c;
-  --filter-map-canvas: saturate(0.58) sepia(0.08) brightness(0.62) contrast(1.08);
+  --color-map-basemap-land: #1b2932;
+  --color-map-basemap-water: #162b36;
+  --color-map-basemap-terrain: #233630;
+  --color-map-basemap-label: #d6dedd;
+  --color-map-basemap-label-muted: #96a7a9;
+  --color-map-basemap-label-halo: #17232d;
+  --color-map-basemap-boundary: #5c6b72;
+  --color-map-basemap-road: #46535a;
+  --opacity-map-basemap-relief: 0.08;
+  --filter-map-canvas: none;
   --filter-map-control-icon: invert(0.92) sepia(0.08);
 
   --shadow-brand: 0 4px 14px rgb(0 0 0 / 32%);

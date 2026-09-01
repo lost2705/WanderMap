@@ -3,69 +3,96 @@ import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
 import type { Trip, TripMapOverview, TripSummary } from '../../types/travel'
 import {
+  JOURNEY_COUNTRY_HIGHLIGHT_OPACITY,
+  WORLD_COUNTRY_HIGHLIGHT_OPACITY,
   ensureCountryHighlightLayer,
   isCountryBoundaryData,
   removeCountryHighlightLayer,
   updateCountryHighlightColor,
   updateCountryHighlightFilter,
+  updateCountryHighlightOpacity,
 } from './countryHighlightLayers'
 import type { CountryBoundaryData } from './countryHighlightLayers'
+import {
+  applyBasemapPalette,
+  configureBasemapHierarchy,
+  discoverBasemapLayers,
+} from './basemapStyle'
+import type { BasemapLayerIndex } from './basemapStyle'
+import {
+  configureFlatMapInteractions,
+  constrainAtlasCamera,
+  FLAT_MAP_INTERACTION_OPTIONS,
+  flatCameraOptions,
+  worldOverviewCamera,
+  WORLD_ATLAS_LONGITUDE,
+} from './mapCamera'
 import {
   countryCodesForMap,
   markerOffsetsForScreenCollisions,
   markerScreenKey,
-  markersForMap,
+  markersForSelectedTrip,
+  placesForGlobalMap,
   routeFeatureCollection,
   routesForMap,
   selectedTripCameraTarget,
   selectedTripCameraTargetKey,
+  worldPlaceFeatureCollection,
 } from './mapData'
+import type { DisplayMarker } from './mapData'
+import { mapThemeColors } from './mapTheme'
 import {
   ensureTripRouteLayers,
   removeTripRouteLayers,
   updateTripRouteColor,
   updateTripRouteData,
 } from './routeLayers'
+import {
+  bindWorldPlaceInteractions,
+  ensureWorldPlaceLayers,
+  removeWorldPlaceLayers,
+  updateWorldPlaceColors,
+  updateWorldPlaceData,
+  updateWorldPlaceVisibility,
+} from './worldPlaceLayers'
 
 const MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
 const COUNTRY_BOUNDARIES_URL =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_admin_0_countries.geojson'
-const WORLD_OVERVIEW_BOUNDS: [[number, number], [number, number]] = [[-180, -60], [180, 85]]
-const WORLD_OVERVIEW_PADDING = 28
-const DEFAULT_COUNTRY_FILL = '#df8a5f'
-const DEFAULT_SELECTED_ROUTE = '#bd5426'
 
 interface MapViewProps {
   overview: TripMapOverview | null
   selectedTrip: Trip | null
   trips: TripSummary[]
   onSelectPlace: (cityId: string) => void
+  worldResetKey?: number
 }
 
 interface MapMarkerReference {
-  data: ReturnType<typeof markersForMap>[number]
+  data: DisplayMarker
   marker: Marker
 }
 
-export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapViewProps) {
+export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldResetKey = 0 }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRefs = useRef<MapMarkerReference[]>([])
-  const selectedTripRef = useRef(selectedTrip)
+  const basemapLayersRef = useRef<BasemapLayerIndex | null>(null)
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
+  const [showGlobalRoutes, setShowGlobalRoutes] = useState(false)
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
-  const displayMarkers = markersForMap(overview, selectedTrip?.id ?? null)
-  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip))
+  const worldPlaces = placesForGlobalMap(overview)
+  const worldPlaceData = worldPlaceFeatureCollection(overview)
+  const worldPlaceDataKey = JSON.stringify(worldPlaceData)
+  const selectedMarkers = selectedTrip ? markersForSelectedTrip(overview, selectedTrip.id) : []
+  const globalRoutesAvailable = routesForMap(overview, null, true).length > 0
+  const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip, showGlobalRoutes))
   const routeDataKey = JSON.stringify(routeData)
   const cameraTarget = selectedTripCameraTarget(selectedTrip)
   const cameraTargetKey = selectedTripCameraTargetKey(cameraTarget)
   const tripNamesKey = JSON.stringify(trips.map((trip) => [trip.id, trip.name]))
-
-  useEffect(() => {
-    selectedTripRef.current = selectedTrip
-  }, [selectedTrip])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -90,22 +117,37 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       return
     }
 
+    let viewportWidth = mapElementRef.current.clientWidth
+    let viewportHeight = mapElementRef.current.clientHeight
+    const initialCamera = worldOverviewCamera(viewportWidth, viewportHeight)
     const map = new maplibregl.Map({
       container: mapElementRef.current,
       style: MAP_STYLE_URL,
-      center: [0, 18],
+      center: [WORLD_ATLAS_LONGITUDE, 18],
       zoom: -1,
-      minZoom: -2,
+      minZoom: initialCamera?.zoom ?? -2,
+      ...initialCamera,
       renderWorldCopies: false,
+      ...FLAT_MAP_INTERACTION_OPTIONS,
+      transformCameraUpdate: (next) => {
+        const { center, ...camera } = constrainAtlasCamera(next, viewportWidth, viewportHeight)
+        return center
+          ? { ...camera, center: new maplibregl.LngLat(...center) }
+          : camera
+      },
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
+    configureFlatMapInteractions(map)
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false, showZoom: true }), 'top-right')
 
     const isActiveMap = () => mapRef.current === map
     let isReady = false
-    const resetDefaultViewport = () => {
+    const updateViewportLimit = () => {
       if (isActiveMap()) {
-        updateWorldViewport(map, selectedTripRef.current === null)
+        viewportWidth = map.getContainer().clientWidth
+        viewportHeight = map.getContainer().clientHeight
+        // Both modes need the same safe far-zoom limit; this does not refit.
+        updateWorldViewport(map, false)
       }
     }
     const markMapReady = () => {
@@ -114,22 +156,26 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       }
 
       isReady = true
-      resetDefaultViewport()
+      const basemapLayers = discoverBasemapLayers(map.getStyle()?.layers ?? [])
+      basemapLayersRef.current = basemapLayers
+      configureBasemapHierarchy(map, basemapLayers)
+      applyBasemapPalette(map, basemapLayers, mapThemeColors().basemap)
       setReadyMap(map)
     }
 
     map.once('style.load', markMapReady)
-    map.on('resize', resetDefaultViewport)
+    map.on('resize', updateViewportLimit)
     if (map.isStyleLoaded()) {
       markMapReady()
     }
 
     return () => {
       map.off('style.load', markMapReady)
-      map.off('resize', resetDefaultViewport)
+      map.off('resize', updateViewportLimit)
       if (mapRef.current === map) {
         markerRefs.current.forEach(({ marker }) => marker.remove())
         markerRefs.current = []
+        basemapLayersRef.current = null
         mapRef.current = null
       }
       setReadyMap((currentMap) => (currentMap === map ? null : currentMap))
@@ -143,7 +189,13 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       return
     }
 
-    ensureCountryHighlightLayer(map, countryBoundaryData, visitedCountryCodes, mapThemeColors().countryFill)
+    ensureCountryHighlightLayer(
+      map,
+      countryBoundaryData,
+      visitedCountryCodes,
+      mapThemeColors().countryFill,
+      WORLD_COUNTRY_HIGHLIGHT_OPACITY,
+    )
 
     return () => {
       if (mapRef.current === map) {
@@ -159,7 +211,53 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
     }
 
     updateCountryHighlightFilter(map, visitedCountryCodes)
-  }, [readyMap, visitedCountryCodesKey])
+    updateCountryHighlightOpacity(
+      map,
+      selectedTrip ? JOURNEY_COUNTRY_HIGHLIGHT_OPACITY : WORLD_COUNTRY_HIGHLIGHT_OPACITY,
+    )
+  }, [readyMap, countryBoundaryData, visitedCountryCodesKey, selectedTrip])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    ensureWorldPlaceLayers(map, worldPlaceData, mapThemeColors().worldPlaces, selectedTrip === null)
+
+    return () => {
+      if (mapRef.current === map) {
+        removeWorldPlaceLayers(map)
+      }
+    }
+  }, [readyMap])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    return bindWorldPlaceInteractions(map, onSelectPlace)
+  }, [readyMap, onSelectPlace])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    updateWorldPlaceData(map, worldPlaceData)
+  }, [readyMap, worldPlaceDataKey])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
+    updateWorldPlaceVisibility(map, selectedTrip === null)
+  }, [readyMap, selectedTrip])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -187,6 +285,10 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       const colors = mapThemeColors()
       updateCountryHighlightColor(map, colors.countryFill)
       updateTripRouteColor(map, selectedTrip ? colors.selectedRoute : null)
+      updateWorldPlaceColors(map, colors.worldPlaces)
+      if (basemapLayersRef.current) {
+        applyBasemapPalette(map, basemapLayersRef.current, colors.basemap)
+      }
     }
     applyThemeColors()
     const observer = new MutationObserver(applyThemeColors)
@@ -212,10 +314,10 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
 
     markerRefs.current.forEach(({ marker }) => marker.remove())
     const tripNames = new Map(trips.map((trip) => [trip.id, trip.name]))
-    const markers = displayMarkers
+    const markers = selectedMarkers
       .map((data): MapMarkerReference => ({
         data,
-        marker: createMarker(data, tripNames, onSelectPlace).addTo(map),
+        marker: createSelectedMarker(data, tripNames).addTo(map),
       }))
     const updateMarkerOffsets = () => {
       const offsets = markerOffsetsForScreenCollisions(markers.map(({ data }) => {
@@ -245,7 +347,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
         markerRefs.current = []
       }
     }
-  }, [readyMap, overview, selectedTrip?.id, tripNamesKey, onSelectPlace])
+  }, [readyMap, overview, selectedTrip?.id, tripNamesKey])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -258,8 +360,11 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       return
     }
 
+    // Preserve the Journey target, while keeping manual zoom-out inside the atlas.
+    updateWorldViewport(map, false)
+
     if (cameraTarget.kind === 'point') {
-      map.flyTo({ center: cameraTarget.coordinate, zoom: cameraTarget.zoom, essential: true })
+      map.flyTo(flatCameraOptions({ center: cameraTarget.coordinate, zoom: cameraTarget.zoom, essential: true }))
       return
     }
 
@@ -267,8 +372,8 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
       (currentBounds, coordinate) => currentBounds.extend(coordinate),
       new LngLatBounds(),
     )
-    map.fitBounds(bounds, { padding: 90, maxZoom: 6, duration: 700 })
-  }, [readyMap, cameraTargetKey])
+    map.fitBounds(bounds, flatCameraOptions({ padding: 90, maxZoom: 6, duration: 700 }))
+  }, [readyMap, cameraTargetKey, worldResetKey])
 
   return (
     <section className="map-panel" aria-label="Interactive travel map">
@@ -280,12 +385,28 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace }: MapVie
           )}</h1>
         </div>
         <p>{selectedTrip
-          ? `${displayMarkers.length} ${displayMarkers.length === 1 ? 'place' : 'places'} · ${visitedCountryCodes.length} ${visitedCountryCodes.length === 1 ? 'country' : 'countries'}`
-          : `${displayMarkers.length} ${displayMarkers.length === 1 ? 'place' : 'places'} visited`}</p>
+          ? `${selectedMarkers.length} ${selectedMarkers.length === 1 ? 'place' : 'places'} · ${visitedCountryCodes.length} ${visitedCountryCodes.length === 1 ? 'country' : 'countries'}`
+          : `${worldPlaces.length} ${worldPlaces.length === 1 ? 'place' : 'places'} visited`}</p>
       </div>
       <div className="map-canvas" ref={mapElementRef} />
+      {!selectedTrip && globalRoutesAvailable ? (
+        <button
+          className="map-route-toggle"
+          type="button"
+          aria-pressed={showGlobalRoutes}
+          aria-describedby="world-map-hint"
+          onClick={() => setShowGlobalRoutes((current) => !current)}
+        >
+          <span aria-hidden="true" className="map-route-toggle-mark" />
+          Show routes
+        </button>
+      ) : null}
       {!selectedTrip && overview && overview.markers.length > 0 ? (
-        <p className="map-hint">Choose a journey to trace its story across the map.</p>
+        <p className="map-hint" id="world-map-hint" role="status">
+          {showGlobalRoutes
+            ? 'Routes shown. Zoom in to trace nearby stops.'
+            : 'Choose a journey to trace its story across the map.'}
+        </p>
       ) : null}
     </section>
   )
@@ -308,29 +429,18 @@ async function fetchCountryBoundaries(signal: AbortSignal): Promise<CountryBound
   return data
 }
 
-function createMarker(
-  marker: ReturnType<typeof markersForMap>[number],
+function createSelectedMarker(
+  marker: DisplayMarker,
   tripNames: Map<string, string>,
-  onSelectPlace: (cityId: string) => void,
 ): Marker {
   const element = document.createElement('button')
-  element.className = marker.mode === 'global-place'
-    ? 'map-marker is-place'
-    : 'map-marker is-itinerary is-selected'
+  element.className = 'map-marker is-itinerary is-selected'
   element.type = 'button'
-  if (marker.mode === 'global-place') {
-    element.style.setProperty('--trip-color', marker.identityColor)
-  }
-  element.setAttribute('aria-label', markerAriaLabel(marker, tripNames))
+  element.setAttribute('aria-label', selectedMarkerAriaLabel(marker, tripNames))
   element.textContent = marker.markerLabel ?? ''
 
   const mapMarker = new Marker({ element, anchor: 'center', offset: marker.pixelOffset })
     .setLngLat(marker.coordinate)
-
-  if (marker.mode === 'global-place') {
-    element.addEventListener('click', () => onSelectPlace(marker.cityId))
-    return mapMarker
-  }
 
   const popupContent = document.createElement('div')
   const city = document.createElement('strong')
@@ -351,26 +461,14 @@ function createMarker(
   return mapMarker.setPopup(new Popup({ offset: 16 }).setDOMContent(popupContent))
 }
 
-function markerAriaLabel(
-  marker: ReturnType<typeof markersForMap>[number],
+function selectedMarkerAriaLabel(
+  marker: DisplayMarker,
   tripNames: Map<string, string>,
 ): string {
   const place = `${marker.cityName}, ${marker.country.name}`
-  if (marker.mode === 'selected-itinerary') {
-    const visit = marker.visits[0]
-    const tripName = visit ? tripNames.get(visit.tripId) : undefined
-    return `${place}${tripName ? ` — ${tripName}` : ''}${visit ? `, stop ${visit.position}` : ''}`
-  }
-
-  const names = uniqueTripNames(marker.visits, tripNames)
-  return `${place} — visited in ${names.join(', ')}`
-}
-
-function uniqueTripNames(
-  visits: ReturnType<typeof markersForMap>[number]['visits'],
-  tripNames: Map<string, string>,
-): string[] {
-  return [...new Set(visits.map((visit) => tripNames.get(visit.tripId) ?? visit.tripId))]
+  const visit = marker.visits[0]
+  const tripName = visit ? tripNames.get(visit.tripId) : undefined
+  return `${place}${tripName ? ` — ${tripName}` : ''}${visit ? `, stop ${visit.position}` : ''}`
 }
 
 function popupLine(text: string): HTMLSpanElement {
@@ -379,22 +477,15 @@ function popupLine(text: string): HTMLSpanElement {
   return line
 }
 
-function mapThemeColors(): { countryFill: string; selectedRoute: string } {
-  const styles = getComputedStyle(document.documentElement)
-  return {
-    countryFill: styles.getPropertyValue('--color-map-country-fill').trim() || DEFAULT_COUNTRY_FILL,
-    selectedRoute: styles.getPropertyValue('--color-map-route').trim() || DEFAULT_SELECTED_ROUTE,
-  }
-}
-
 function updateWorldViewport(map: maplibregl.Map, moveCamera: boolean) {
-  const camera = map.cameraForBounds(WORLD_OVERVIEW_BOUNDS, { padding: WORLD_OVERVIEW_PADDING })
+  const container = map.getContainer()
+  const camera = worldOverviewCamera(container.clientWidth, container.clientHeight)
   if (!camera) {
     return
   }
 
   map.setMinZoom(camera.zoom)
   if (moveCamera) {
-    map.jumpTo(camera)
+    map.jumpTo(flatCameraOptions(camera))
   }
 }

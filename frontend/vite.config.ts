@@ -17,5 +17,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    css: { include: [/\/(styles|design-tokens)\.css\?inline$/] },
   },
 })

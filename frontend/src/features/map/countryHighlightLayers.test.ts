@@ -3,14 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { countryFeatureFilter } from './mapData'
 import {
   COUNTRY_HIGHLIGHT_LAYER_ID,
-  COUNTRY_HIGHLIGHT_OPACITY,
   COUNTRY_HIGHLIGHT_SOURCE_ID,
+  JOURNEY_COUNTRY_HIGHLIGHT_OPACITY,
+  WORLD_COUNTRY_HIGHLIGHT_OPACITY,
   countryHighlightInsertionLayerId,
   ensureCountryHighlightLayer,
   isCountryBoundaryData,
   removeCountryHighlightLayer,
   updateCountryHighlightColor,
   updateCountryHighlightFilter,
+  updateCountryHighlightOpacity,
 } from './countryHighlightLayers'
 import type { CountryBoundaryData } from './countryHighlightLayers'
 
@@ -35,7 +37,7 @@ describe('country highlight MapLibre layer', () => {
       { id: 'labels', type: 'symbol', 'source-layer': 'place' },
     ])
 
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     expect(fixture.addSource).toHaveBeenCalledWith(COUNTRY_HIGHLIGHT_SOURCE_ID, {
       type: 'geojson',
@@ -51,7 +53,7 @@ describe('country highlight MapLibre layer', () => {
       paint: {
         'fill-antialias': true,
         'fill-color': '#df8a5f',
-        'fill-opacity': COUNTRY_HIGHLIGHT_OPACITY,
+        'fill-opacity': WORLD_COUNTRY_HIGHLIGHT_OPACITY,
       },
     }))
     expect(JSON.stringify(fixture.addLayer.mock.calls[0]?.[0])).not.toContain('FR')
@@ -77,8 +79,8 @@ describe('country highlight MapLibre layer', () => {
   it('does not recreate the source or layer when ensure is called again', () => {
     const fixture = mapFixture([])
 
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
-    ensureCountryHighlightLayer(fixture.map, countryData, ['JP'], '#5f92a1')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
+    ensureCountryHighlightLayer(fixture.map, countryData, ['JP'], '#5f92a1', JOURNEY_COUNTRY_HIGHLIGHT_OPACITY)
 
     expect(fixture.addSource).toHaveBeenCalledTimes(1)
     expect(fixture.addLayer).toHaveBeenCalledTimes(1)
@@ -86,7 +88,7 @@ describe('country highlight MapLibre layer', () => {
 
   it('updates selected-country filters without rebuilding geometry', () => {
     const fixture = mapFixture([])
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     updateCountryHighlightFilter(fixture.map, ['JP', 'US'])
 
@@ -100,7 +102,7 @@ describe('country highlight MapLibre layer', () => {
 
   it('uses an empty non-matching filter when no country is selected', () => {
     const fixture = mapFixture([])
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     updateCountryHighlightFilter(fixture.map, [])
 
@@ -112,7 +114,7 @@ describe('country highlight MapLibre layer', () => {
 
   it('passes unknown persisted ISO codes through the same generic filter', () => {
     const fixture = mapFixture([])
-    ensureCountryHighlightLayer(fixture.map, countryData, [], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, [], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     updateCountryHighlightFilter(fixture.map, ['ZZ'])
 
@@ -124,7 +126,7 @@ describe('country highlight MapLibre layer', () => {
 
   it('updates only the fill color when the active theme changes', () => {
     const fixture = mapFixture([])
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     updateCountryHighlightColor(fixture.map, '#e18a62')
 
@@ -137,11 +139,35 @@ describe('country highlight MapLibre layer', () => {
     expect(fixture.addLayer).toHaveBeenCalledTimes(1)
   })
 
+  it('disables the World fill while allowing the selected Journey to remain stronger', () => {
+    const fixture = mapFixture([])
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
+
+    updateCountryHighlightOpacity(fixture.map, JOURNEY_COUNTRY_HIGHLIGHT_OPACITY)
+    updateCountryHighlightOpacity(fixture.map, WORLD_COUNTRY_HIGHLIGHT_OPACITY)
+
+    expect(WORLD_COUNTRY_HIGHLIGHT_OPACITY).toBe(0)
+    expect(JOURNEY_COUNTRY_HIGHLIGHT_OPACITY).toBeGreaterThan(WORLD_COUNTRY_HIGHLIGHT_OPACITY)
+    expect(fixture.setPaintProperty).toHaveBeenNthCalledWith(
+      1,
+      COUNTRY_HIGHLIGHT_LAYER_ID,
+      'fill-opacity',
+      JOURNEY_COUNTRY_HIGHLIGHT_OPACITY,
+    )
+    expect(fixture.setPaintProperty).toHaveBeenNthCalledWith(
+      2,
+      COUNTRY_HIGHLIGHT_LAYER_ID,
+      'fill-opacity',
+      WORLD_COUNTRY_HIGHLIGHT_OPACITY,
+    )
+  })
+
   it('ignores updates when a failed boundary request left no layer', () => {
     const fixture = mapFixture([])
 
     updateCountryHighlightFilter(fixture.map, ['IT'])
     updateCountryHighlightColor(fixture.map, '#df8a5f')
+    updateCountryHighlightOpacity(fixture.map, WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     expect(fixture.setFilter).not.toHaveBeenCalled()
     expect(fixture.setPaintProperty).not.toHaveBeenCalled()
@@ -149,7 +175,7 @@ describe('country highlight MapLibre layer', () => {
 
   it('removes the layer before its source', () => {
     const fixture = mapFixture([])
-    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f')
+    ensureCountryHighlightLayer(fixture.map, countryData, ['IT'], '#df8a5f', WORLD_COUNTRY_HIGHLIGHT_OPACITY)
 
     removeCountryHighlightLayer(fixture.map)
 

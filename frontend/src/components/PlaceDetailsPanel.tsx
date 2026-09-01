@@ -1,8 +1,10 @@
+import type { Ref } from 'react'
 import type { PlaceDetails, PlaceVisit } from '../types/travel'
 import { formatCalendarDateRange, formatStopDateRange } from '../utils/calendarDate'
 import { hasMemoryContent, orderedMemoryPhotos } from './memoryPresentation'
 
 interface PlaceDetailsPanelProps {
+  closeButtonRef?: Ref<HTMLButtonElement>
   details: PlaceDetails | null
   error: string | null
   isLoading: boolean
@@ -15,6 +17,7 @@ interface PlaceDetailsPanelProps {
 const MAX_VISIBLE_PHOTOS = 3
 
 export function PlaceDetailsPanel({
+  closeButtonRef,
   details,
   error,
   isLoading,
@@ -25,7 +28,7 @@ export function PlaceDetailsPanel({
 }: PlaceDetailsPanelProps) {
   return (
     <section className="place-details-panel" aria-label="Place details">
-      <button className="place-details-close" aria-label="Close place details" type="button" onClick={onClose}>
+      <button ref={closeButtonRef} className="place-details-close" aria-label="Close place details" type="button" onClick={onClose}>
         ×
       </button>
       {isLoading ? (

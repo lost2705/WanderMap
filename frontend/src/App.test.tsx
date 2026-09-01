@@ -38,10 +38,12 @@ vi.mock('./features/map/MapView', async () => {
       overview,
       selectedTrip,
       onSelectPlace,
+      worldResetKey,
     }: {
       overview: TripMapOverview | null
       selectedTrip: Trip | null
       onSelectPlace: (cityId: string) => void
+      worldResetKey: number
     }) => {
       const countryCodes = countryCodesForMap(overview, selectedTrip)
       const markers = markersForMap(overview, selectedTrip?.id ?? null)
@@ -55,6 +57,7 @@ vi.mock('./features/map/MapView', async () => {
           data-markers={markers.flatMap((marker) => marker.visits.map((visit) => visit.tripId)).join(',')}
           data-route={routes[0]?.coordinates.map((coordinate) => coordinate.join(',')).join('|') ?? ''}
           data-selected-trip={selectedTrip?.id ?? 'global'}
+          data-world-reset-key={worldResetKey}
           data-testid="map-state"
         >
           {markers.map((marker) => marker.mode === 'global-place' ? (
@@ -276,7 +279,7 @@ describe('App trip selection', () => {
     expect(screen.getByText('Select a journey to open its travel timeline.')).toBeTruthy()
     expect(screen.getByLabelText('Travel atlas summary').textContent)
       .toBe('Places2Countries2Journeys2Memories1')
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
 
     fireEvent.click(italyButton)
 
@@ -535,7 +538,7 @@ describe('App Journey creation and city search flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Spain 2027, 3 places' }))
 
     await waitFor(() => expect(mapSurface.getAttribute('data-selected-trip')).toBe('global'))
-    expect(mapSurface.getAttribute('data-countries')).toBe('')
+    expect(mapSurface.getAttribute('data-countries')).toBe('ES,IT,JP')
     expect(mapSurface.getAttribute('data-route')).toBe('')
     expect(mapSurface.getAttribute('data-marker-count')).toBe('4')
     expect(screen.getAllByRole('button', { name: 'Open memories for Barcelona' })).toHaveLength(1)
@@ -605,7 +608,7 @@ describe('App responsive navigation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Japan 2026, 1 place' }))
 
-    await waitFor(() => expectMapState('global', '', 'italy,japan'))
+    await waitFor(() => expectMapState('global', 'IT,JP', 'italy,japan'))
     expect(screen.getByText('Select a journey to open its travel timeline.')).toBeTruthy()
   })
 
@@ -615,7 +618,7 @@ describe('App responsive navigation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Return to world map' }))
 
-    await waitFor(() => expectMapState('global', '', 'italy,japan'))
+    await waitFor(() => expectMapState('global', 'IT,JP', 'italy,japan'))
     expect(screen.queryByRole('button', { name: 'Return to world map' })).toBeNull()
   })
 
@@ -664,6 +667,32 @@ describe('App responsive navigation', () => {
     expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
   })
 
+  it('opens a visited place from the mobile drawer and restores focus outside the closed drawer', async () => {
+    stubNavigationViewport(true)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+    const navigation = screen.getByRole('complementary', { name: 'Journey navigation' })
+    const openButton = screen.getByRole('button', { name: 'Open journey navigation' })
+
+    fireEvent.click(openButton)
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Visited places — 2 places' }))
+    const rome = screen.getByRole('button', { name: 'Open Rome, Italy — 1 visit' })
+    rome.focus()
+    rome.click()
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(navigation.classList.contains('is-open')).toBe(false)
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(false)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close place details' }))
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    expect(document.activeElement).toBe(openButton)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
   it('keeps the desktop sidebar non-modal and the single map surface available', async () => {
     stubNavigationViewport(false)
     render(<App />)
@@ -682,6 +711,37 @@ describe('App responsive navigation', () => {
 })
 
 describe('App global place details', () => {
+  it('opens the existing Place Details from keyboard-focusable World navigation without resetting the map', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    expect(screen.queryByRole('region', { name: 'Visited places' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    const navigation = screen.getByRole('region', { name: 'Visited places' })
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Visited places — 2 places' }))
+    const rome = within(navigation).getByRole('button', { name: 'Open Rome, Italy — 1 visit' })
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Appearance' }), { target: { value: 'ocean' } })
+    expect(within(navigation).getByRole('button', { name: 'Visited places — 2 places' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+
+    rome.focus()
+    expect(document.activeElement).toBe(rome)
+    rome.click()
+
+    expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
+    expect(getPlaceDetails).toHaveBeenCalledWith('city-rome', expect.any(AbortSignal))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close place details' }))
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(mapSurface.getAttribute('data-world-reset-key')).toBe('0')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    expect(document.activeElement).toBe(rome)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(mapSurface.getAttribute('data-world-reset-key')).toBe('0')
+  })
+
   it('opens a global marker through loading and renders its place memories', async () => {
     const request = deferred<PlaceDetails>()
     vi.mocked(getPlaceDetails).mockReturnValueOnce(request.promise)
@@ -713,7 +773,7 @@ describe('App global place details', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
 
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull())
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 
   it('does not reopen details when a request finishes after the panel is closed', async () => {
@@ -729,7 +789,7 @@ describe('App global place details', () => {
     request.resolve(romePlace)
 
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Place details' })).toBeNull())
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 
   it('keeps the newest place when an earlier request resolves late', async () => {
@@ -766,7 +826,7 @@ describe('App global place details', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
     expect(await screen.findByRole('heading', { name: 'Rome' })).toBeTruthy()
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 
   it('views the requested trip using the existing selection and closes the panel', async () => {
@@ -841,6 +901,17 @@ describe('App global place details', () => {
 })
 
 describe('App Journey memory navigation', () => {
+  it('requests an explicit World reset from a global Memory without resetting on Place/Memory opening', async () => {
+    render(<App />)
+    await openGlobalMemory('Rome')
+    expect(screen.getByTestId('map-state').getAttribute('data-world-reset-key')).toBe('0')
+    expect(screen.getByTestId('map-state').getAttribute('data-selected-trip')).toBe('global')
+    fireEvent.click(screen.getByRole('button', { name: 'World' }))
+    expect(screen.getByTestId('map-state').getAttribute('data-world-reset-key')).toBe('1')
+    expect(screen.queryByRole('region', { name: 'Memory view' })).toBeNull()
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+  })
+
   it('opens a stop memory while retaining selected-trip state, then returns to Journey and World', async () => {
     const journeyWithMemory: Trip = {
       ...japanTrip,
@@ -872,7 +943,7 @@ describe('App Journey memory navigation', () => {
     expect(screen.queryByRole('region', { name: 'Memory view' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByTestId('map-state')).toBe(mapSurface)
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 
   it('opens Place Memories from a Journey memory and ignores a stale prior Place response', async () => {
@@ -906,7 +977,7 @@ describe('App Journey memory navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View place' }))
     expect(await screen.findByRole('region', { name: 'Place details' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Tokyo' })).toBeTruthy()
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 })
 
@@ -1162,7 +1233,7 @@ describe('App appearance', () => {
     expect(screen.getByRole('region', { name: 'Place details' })).toBe(placePanel)
     expect(screen.getByRole('heading', { name: 'Rome' })).toBeTruthy()
     expect(screen.getByTestId('map-state')).toBe(mapSurface)
-    expectMapState('global', '', 'italy,japan')
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 
   it('preserves an active Memory and selected Journey while switching to Midnight', async () => {
