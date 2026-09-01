@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, Ref } from 'react'
 import { ApiError } from '../api/client'
 import { searchCities } from '../api/cities'
 import type { CitySearchResult } from '../types/travel'
@@ -15,6 +15,9 @@ interface CitySearchProps {
   query: string
   selectedResult: CitySearchResult | null
   disabled?: boolean
+  inputRef?: Ref<HTMLInputElement>
+  label?: string
+  placeholder?: string
   search?: SearchCitiesFunction
   onQueryChange: (query: string) => void
   onSelect: (result: CitySearchResult) => void
@@ -24,6 +27,9 @@ export function CitySearch({
   query,
   selectedResult,
   disabled = false,
+  inputRef,
+  label = 'Where did you go?',
+  placeholder = 'Start typing a city...',
   search = searchCities,
   onQueryChange,
   onSelect,
@@ -123,7 +129,7 @@ export function CitySearch({
 
   return (
     <div className="city-search">
-      <label htmlFor={`${listId}-input`}>Where did you go?</label>
+      <label htmlFor={`${listId}-input`}>{label}</label>
       <div className="city-search-control">
         <input
           aria-activedescendant={activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
@@ -133,8 +139,9 @@ export function CitySearch({
           autoComplete="off"
           disabled={disabled}
           id={`${listId}-input`}
+          ref={inputRef}
           maxLength={160}
-          placeholder="Start typing a city..."
+          placeholder={placeholder}
           role="combobox"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}

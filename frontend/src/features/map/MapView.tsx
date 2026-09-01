@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { LngLatBounds, Marker, Popup } from 'maplibre-gl'
-import type { Trip, TripMapOverview, TripSummary } from '../../types/travel'
+import type { BucketListItem, Trip, TripMapOverview, TripSummary } from '../../types/travel'
+import {
+  bindBucketListInteractions,
+  ensureBucketListLayers,
+  removeBucketListLayers,
+  updateBucketListColors,
+  updateBucketListData,
+  updateBucketListVisibility,
+} from './bucketListLayers'
 import {
   JOURNEY_COUNTRY_HIGHLIGHT_OPACITY,
   WORLD_COUNTRY_HIGHLIGHT_OPACITY,
@@ -29,10 +37,10 @@ import {
 } from './mapCamera'
 import {
   countryCodesForMap,
+  bucketListFeatureCollection,
   markerOffsetsForScreenCollisions,
   markerScreenKey,
   markersForSelectedTrip,
-  placesForGlobalMap,
   routeFeatureCollection,
   routesForMap,
   selectedTripCameraTarget,
@@ -61,6 +69,7 @@ const COUNTRY_BOUNDARIES_URL =
   'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_50m_admin_0_countries.geojson'
 
 interface MapViewProps {
+  bucketListItems?: BucketListItem[]
   overview: TripMapOverview | null
   selectedTrip: Trip | null
   trips: TripSummary[]
@@ -73,7 +82,7 @@ interface MapMarkerReference {
   marker: Marker
 }
 
-export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldResetKey = 0 }: MapViewProps) {
+export function MapView({ bucketListItems = [], overview, selectedTrip, trips, onSelectPlace, worldResetKey = 0 }: MapViewProps) {
   const mapElementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRefs = useRef<MapMarkerReference[]>([])
@@ -83,9 +92,10 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldRes
   const [showGlobalRoutes, setShowGlobalRoutes] = useState(false)
   const visitedCountryCodes = countryCodesForMap(overview, selectedTrip)
   const visitedCountryCodesKey = visitedCountryCodes.join(',')
-  const worldPlaces = placesForGlobalMap(overview)
   const worldPlaceData = worldPlaceFeatureCollection(overview)
   const worldPlaceDataKey = JSON.stringify(worldPlaceData)
+  const bucketListData = bucketListFeatureCollection(bucketListItems)
+  const bucketListDataKey = JSON.stringify(bucketListData)
   const selectedMarkers = selectedTrip ? markersForSelectedTrip(overview, selectedTrip.id) : []
   const globalRoutesAvailable = routesForMap(overview, null, true).length > 0
   const routeData = routeFeatureCollection(routesForMap(overview, selectedTrip, showGlobalRoutes))
@@ -265,6 +275,42 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldRes
       return
     }
 
+    ensureBucketListLayers(map, bucketListData, mapThemeColors().bucketPlaces, selectedTrip === null)
+    return () => {
+      if (mapRef.current === map) {
+        removeBucketListLayers(map)
+      }
+    }
+  }, [readyMap])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+    return bindBucketListInteractions(map, onSelectPlace)
+  }, [readyMap, onSelectPlace])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (map) {
+      updateBucketListData(map, bucketListData)
+    }
+  }, [readyMap, bucketListDataKey])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (map) {
+      updateBucketListVisibility(map, selectedTrip === null)
+    }
+  }, [readyMap, selectedTrip])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) {
+      return
+    }
+
     ensureTripRouteLayers(map)
 
     return () => {
@@ -286,6 +332,7 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldRes
       updateCountryHighlightColor(map, colors.countryFill)
       updateTripRouteColor(map, selectedTrip ? colors.selectedRoute : null)
       updateWorldPlaceColors(map, colors.worldPlaces)
+      updateBucketListColors(map, colors.bucketPlaces)
       if (basemapLayersRef.current) {
         applyBasemapPalette(map, basemapLayersRef.current, colors.basemap)
       }
@@ -376,18 +423,16 @@ export function MapView({ overview, selectedTrip, trips, onSelectPlace, worldRes
   }, [readyMap, cameraTargetKey, worldResetKey])
 
   return (
-    <section className="map-panel" aria-label="Interactive travel map">
-      <div className={`map-caption${selectedTrip ? ' is-journey' : ' is-global'}`}>
-        <div>
-          <p className="eyebrow">{selectedTrip ? 'Journey map' : 'A visual travel journal'}</p>
-          <h1>{selectedTrip ? selectedTrip.name : (
-            <>See where your <span>stories take you.</span></>
-          )}</h1>
+    <section className={`map-panel ${selectedTrip ? 'is-journey' : 'is-world'}`} aria-label="Interactive travel map">
+      {selectedTrip ? (
+        <div className="map-caption is-journey">
+          <div>
+            <p className="eyebrow">Journey map</p>
+            <h1>{selectedTrip.name}</h1>
+          </div>
+          <p>{`${selectedMarkers.length} ${selectedMarkers.length === 1 ? 'place' : 'places'} · ${visitedCountryCodes.length} ${visitedCountryCodes.length === 1 ? 'country' : 'countries'}`}</p>
         </div>
-        <p>{selectedTrip
-          ? `${selectedMarkers.length} ${selectedMarkers.length === 1 ? 'place' : 'places'} · ${visitedCountryCodes.length} ${visitedCountryCodes.length === 1 ? 'country' : 'countries'}`
-          : `${worldPlaces.length} ${worldPlaces.length === 1 ? 'place' : 'places'} visited`}</p>
-      </div>
+      ) : null}
       <div className="map-canvas" ref={mapElementRef} />
       {!selectedTrip && globalRoutesAvailable ? (
         <button

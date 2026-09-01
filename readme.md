@@ -10,6 +10,8 @@ WanderMap is a visual travel journal for collecting trips and seeing their itine
 - search real cities and add one explicit result as an itinerary stop;
 - reorder and remove itinerary stops;
 - add stop dates, notes, and ordered JPEG, PNG, or WebP photo attachments;
+- review historical travel highlights in a compact World map stats bar backed by an identity-safe personal travel profile;
+- save canonical cities to a separate Want to visit list and open them through the existing Place Details flow;
 - preserve all travel data in PostgreSQL across browser refreshes;
 - highlight persisted ISO country codes on a world map;
 - show and focus city markers when stored coordinates are available.
@@ -61,9 +63,9 @@ City search uses the configurable `WANDERMAP_GEOCODING_BASE_URL` (default `https
 
 City autocomplete is mediated by the backend through the provider-neutral `GeocodingClient` boundary. The default adapter uses [Photon](https://github.com/komoot/photon), an open-source OpenStreetMap geocoder designed for search-as-you-type. The public Photon endpoint is suitable for modest development/demo usage but has no availability guarantee; configure `WANDERMAP_GEOCODING_BASE_URL` to use a self-hosted or other Photon-compatible endpoint as usage grows. The OSMF public Nominatim endpoint is intentionally not the default because its [usage policy](https://operations.osmfoundation.org/policies/nominatim/) prohibits autocomplete.
 
-Selecting a result sends its city name, ISO alpha-2 country code, latitude, and longitude to the existing stop endpoint. `TripService` persists those coordinates without depending on Photon DTOs. The previous `KnownCityLocationResolver` remains as a compatibility fallback for older coordinate-less API calls, and unknown coordinate-less cities remain valid itinerary entries without map markers.
+Selecting a result sends its city name, ISO alpha-2 country code, latitude, and longitude to the relevant stop or Bucket List endpoint. The shared `CityResolutionService` persists and reuses canonical cities without depending on Photon DTOs. The previous `KnownCityLocationResolver` remains as a compatibility fallback for older coordinate-less API calls, and unknown coordinate-less cities remain valid itinerary or Bucket List entries without map markers.
 
-The map uses [MapLibre GL JS](https://maplibre.org/) with the token-free [OpenFreeMap](https://openfreemap.org/) Liberty base style. World places use one native clustered GeoJSON feature per stable `cityId`; clusters count cities rather than visits. At medium and close zooms each unclustered place becomes a soft, zoom-scaled editorial glow that indicates an approximate visited area, not an administrative boundary or measured travel footprint. Global Journey routes are opt-in while a selected Journey always keeps its ordered route and individual TripStop markers.
+The map uses [MapLibre GL JS](https://maplibre.org/) with the token-free [OpenFreeMap](https://openfreemap.org/) Liberty base style. Visited World places use one native clustered GeoJSON feature per stable `cityId`; clusters count cities rather than visits. At medium and close zooms each unclustered visited place becomes a soft, zoom-scaled editorial glow that indicates an approximate visited area, not an administrative boundary or measured travel footprint. Want to visit cities use a separate unclustered GeoJSON source and a theme-aware ring; a city that is both visited and saved keeps its glow plus the ring. Bucket markers are World-only and do not alter Journey markers, visited clustering, routes, or camera fitting. Global Journey routes are opt-in while a selected Journey always keeps its ordered route and individual TripStop markers.
 
 World overview is a single north-up Mercator atlas (`renderWorldCopies: false`). Its camera uses the map container, excluding the sidebar, with a nominal longitude span of -168° to +180° and center 6°E / 18°N. Tall containers must fit a full Mercator world vertically: the minimum zoom increases and latitude moves toward the equator, so narrower views crop peripheral geography (including part of Alaska/the Aleutians). The native `transformCameraUpdate` hook holds this visible envelope at maximum zoom-out, then continuously releases it to MapLibre's single-world extent over one zoom level. A starting center and minimum zoom alone do not constrain wheel anchors or pan: they previously allowed the western dateline geometry and polar framing back into view. This is a camera-only presentation constraint; the OpenMapTiles coastline and Natural Earth relief remain unchanged. Normal zoomed-in pan works, and Journey cameras retain their stop-based fitting; manual Journey zoom-out shares the atlas floor/constraint. Explicit World navigation restores the overview; themes, routes, and Place/Memory opening do not reset the camera. Resize updates the viewport constraint and zoom floor without a stop/world refit, though a newly restrictive floor may constrain the current camera. Cross-antimeridian routes such as Tokyo–Honolulu need future geometry splitting/shortest-path handling; the current straight longitude segments are not an antimeridian routing solution.
 
@@ -90,6 +92,8 @@ curl -X POST http://localhost:8080/api/trips/{tripId}/stops \
 
 curl http://localhost:8080/api/trips/{tripId}
 curl http://localhost:8080/api/trips/map-overview
+curl http://localhost:8080/api/travel-profile
+curl http://localhost:8080/api/bucket-list
 curl http://localhost:8080/api/countries
 curl http://localhost:8080/api/health
 
@@ -99,9 +103,21 @@ curl -X POST http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos \
 curl http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos/{photoId}/content
 
 curl -X DELETE http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos/{photoId}
+
+curl -X POST http://localhost:8080/api/bucket-list \
+  -H "Content-Type: application/json" \
+  -d '{"countryCode":"JP","cityName":"Kyoto","latitude":35.0116,"longitude":135.7681}'
+
+curl -X DELETE http://localhost:8080/api/bucket-list/{bucketListItemId}
 ```
 
 `GET /api/cities/search` returns only normalized application fields: `name`, `countryName`, optional `regionName`, `countryCode`, `latitude`, and `longitude`. The region label distinguishes same-name cities within one country but is not required for persistence. The stop endpoint keeps latitude/longitude optional for backward compatibility but requires both when either is supplied. `GET /api/trips/map-overview` remains the compact read model for visited country codes and located stop markers; each marker includes its stable `cityId` so clients can group repeated visits without relying on names or coordinates.
+
+`GET /api/travel-profile` is the single-user domain summary used in World. Places and city revisits use stable `cityId`; a country is revisited only when it occurs in more than one distinct Journey. Travel days are distinct inclusive calendar dates across Journey date ranges, so overlapping trips do not double-count days. An incomplete Journey contributes its one explicitly known date, while a Journey without dates contributes none. Memories remain TripStops with a note and/or photo.
+
+The map is the hero in World View: the profile is presented as a compact floating bar over the lower map rather than a permanent sidebar dashboard or large introductory card. Desktop and tablet show Countries, Places, Journeys, Travel days, and Memories; small screens retain the headline Countries, Places, and Travel days. The bar is hidden for an empty profile and outside the World map. Visits, Photos, and revisit counts remain in the backend read model for a future expanded profile, and Bucket List changes never affect any historical profile metric.
+
+Bucket List persistence is intentionally separate from travel history. Each Bucket List item references one canonical `City`, and a database uniqueness constraint permits only one item per `cityId`; display names are never used as identity. A city may be visited-only, bucket-only, or both. Adding a TripStop never auto-removes its Bucket List item, and removing a Bucket List item never deletes its City or TripStops. `GET /api/bucket-list` derives `visited` from TripStops in the backend without per-item queries. Bucket-only changes do not contribute to Personal Travel Profile counts. Phase 1 deliberately has no note/PATCH field and no automatic first-stop handoff into New Journey; a future planning bridge should prefill the existing city-selection input and keep Journey creation/add-stop failure semantics explicit.
 
 Photo uploads reject empty files, files over the configured limit, unsupported MIME types, and data whose signature does not match its declared type. JPEG and PNG files are decoded with the JDK image codecs with a 25-megapixel cap; WebP receives structural RIFF/WEBP validation because the application intentionally does not add a WebP codec in V1. Production hardening can add malware scanning and derivative thumbnails behind the same storage boundary.
 

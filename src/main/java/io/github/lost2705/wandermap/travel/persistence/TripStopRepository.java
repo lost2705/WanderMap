@@ -17,6 +17,11 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
             """)
     long countStopsWithMemoryContent();
 
+    @Query("SELECT DISTINCT stop.city.id FROM TripStop stop")
+    List<UUID> findVisitedCityIds();
+
+    boolean existsByCity_Id(UUID cityId);
+
     @Query("""
             SELECT DISTINCT stop
             FROM TripStop stop

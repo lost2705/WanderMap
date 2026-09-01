@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PlaceDetails } from '../types/travel'
 import { PlaceDetailsPanel } from './PlaceDetailsPanel'
@@ -115,8 +115,62 @@ describe('PlaceDetailsPanel', () => {
   it('renders a restrained empty visit state', () => {
     renderPanel({ ...details, visitCount: 0, visits: [] })
 
-    expect(screen.getByText('Visited 0 times')).toBeTruthy()
+    expect(screen.getByText('Not visited yet')).toBeTruthy()
     expect(screen.getByText('No visits are recorded for this place yet.')).toBeTruthy()
+  })
+
+  it('shows independent Visited and Want to visit states and removes by bucket item identity', async () => {
+    const bucketListItem = {
+      id: 'bucket-tokyo',
+      city: details.city,
+      createdAt: '2026-09-01T12:00:00Z',
+      visited: true,
+    }
+    const onRemoveFromBucketList = vi.fn().mockResolvedValue(undefined)
+    render(
+      <PlaceDetailsPanel
+        bucketListItem={bucketListItem}
+        details={details}
+        error={null}
+        isLoading={false}
+        onClose={() => undefined}
+        onRemoveFromBucketList={onRemoveFromBucketList}
+        onViewMemory={() => undefined}
+        onRetry={() => undefined}
+        onViewTrip={() => undefined}
+      />,
+    )
+
+    expect(screen.getByText('Visited 2 times')).toBeTruthy()
+    expect(screen.getByText('Want to visit')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from Want to visit' }))
+    await waitFor(() => expect(onRemoveFromBucketList).toHaveBeenCalledWith('bucket-tokyo'))
+  })
+
+  it('keeps the removal action available and exposes a recoverable failure', async () => {
+    const onRemoveFromBucketList = vi.fn().mockRejectedValue(new Error('Bucket List is unavailable.'))
+    render(
+      <PlaceDetailsPanel
+        bucketListItem={{
+          id: 'bucket-tokyo',
+          city: details.city,
+          createdAt: '2026-09-01T12:00:00Z',
+          visited: true,
+        }}
+        details={details}
+        error={null}
+        isLoading={false}
+        onClose={() => undefined}
+        onRemoveFromBucketList={onRemoveFromBucketList}
+        onViewMemory={() => undefined}
+        onRetry={() => undefined}
+        onViewTrip={() => undefined}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from Want to visit' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Bucket List is unavailable.')
+    expect(screen.getByRole('button', { name: 'Remove from Want to visit' })).toBeTruthy()
   })
 })
 

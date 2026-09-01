@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   COUNTRY_ISO_ALPHA2_PROPERTY,
+  bucketListFeatureCollection,
   MARKER_MINIMUM_SPACING,
   countryCodesForMap,
   countryFeatureFilter,
@@ -19,7 +20,7 @@ import {
   toMapCoordinate,
   worldPlaceFeatureCollection,
 } from './mapData'
-import type { Trip, TripMapOverview } from '../../types/travel'
+import type { BucketListItem, Trip, TripMapOverview } from '../../types/travel'
 
 const overview: TripMapOverview = {
   visitedCountryCodes: ['IT', 'FR', 'IT'],
@@ -223,6 +224,28 @@ describe('map data', () => {
       },
       geometry: { type: 'Point', coordinates: [12.4964, 41.9028] },
     })
+  })
+
+  it('creates one bucket point per canonical City with exact identity and visited state', () => {
+    const kyoto = bucketItem('bucket-kyoto', 'city-kyoto', 'Kyoto', false, 35.0116, 135.7681)
+    const duplicateCity = { ...kyoto, id: 'duplicate-bucket-row' }
+    const visitedRome = bucketItem('bucket-rome', 'city-rome', 'Rome', true, 41.9028, 12.4964, 'IT', 'Italy')
+    const unresolved = bucketItem('bucket-unknown', 'city-unknown', 'Unknown', false, null, null)
+
+    const data = bucketListFeatureCollection([kyoto, duplicateCity, visitedRome, unresolved])
+
+    expect(data.features).toHaveLength(2)
+    expect(data.features[0]).toMatchObject({
+      properties: {
+        itemId: 'bucket-kyoto',
+        cityId: 'city-kyoto',
+        cityName: 'Kyoto',
+        countryName: 'Japan',
+        visited: false,
+      },
+      geometry: { type: 'Point', coordinates: [135.7681, 35.0116] },
+    })
+    expect(data.features[1]?.properties).toMatchObject({ cityId: 'city-rome', visited: true })
   })
 
   it('keeps distinct City IDs separate even at identical coordinates', () => {
@@ -513,6 +536,30 @@ function tripWithCountries(id: string, ...countryCodes: string[]): Trip {
         country: { code: countryCode, name: countryCode },
       },
     })),
+  }
+}
+
+function bucketItem(
+  id: string,
+  cityId: string,
+  cityName: string,
+  visited: boolean,
+  latitude: number | null,
+  longitude: number | null,
+  countryCode = 'JP',
+  countryName = 'Japan',
+): BucketListItem {
+  return {
+    id,
+    city: {
+      id: cityId,
+      name: cityName,
+      latitude,
+      longitude,
+      country: { code: countryCode, name: countryName },
+    },
+    createdAt: '2026-09-01T12:00:00Z',
+    visited,
   }
 }
 

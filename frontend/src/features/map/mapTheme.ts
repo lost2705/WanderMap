@@ -1,4 +1,5 @@
 import type { WorldPlaceColors } from './worldPlaceLayers'
+import type { BucketListColors } from './bucketListLayers'
 
 const DEFAULT_COUNTRY_FILL = '#df8a5f'
 const DEFAULT_SELECTED_ROUTE = '#bd5426'
@@ -7,6 +8,9 @@ const DEFAULT_MAP_MARKER_BORDER = '#fffdf8'
 const DEFAULT_MAP_MARKER_LABEL = '#fff'
 const DEFAULT_MAP_VISITED_AREA = '#d97745'
 const DEFAULT_MAP_VISITED_AREA_CORE = '#b94f24'
+const DEFAULT_MAP_BUCKET_RING = '#5e765d'
+const DEFAULT_MAP_BUCKET_HALO = '#d9c99e'
+const DEFAULT_MAP_BUCKET_FILL = '#fffdf8'
 
 export interface BasemapPalette {
   land: string
@@ -23,6 +27,7 @@ export interface BasemapPalette {
 export interface MapThemeColors {
   countryFill: string
   selectedRoute: string
+  bucketPlaces: BucketListColors
   worldPlaces: WorldPlaceColors
   basemap: BasemapPalette
 }
@@ -35,6 +40,11 @@ export function mapThemeColors(): MapThemeColors {
   return {
     countryFill: color('--color-map-country-fill', DEFAULT_COUNTRY_FILL),
     selectedRoute: color('--color-map-route', DEFAULT_SELECTED_ROUTE),
+    bucketPlaces: {
+      ring: color('--color-map-bucket-ring', DEFAULT_MAP_BUCKET_RING),
+      halo: color('--color-map-bucket-halo', DEFAULT_MAP_BUCKET_HALO),
+      fill: color('--color-map-bucket-fill', DEFAULT_MAP_BUCKET_FILL),
+    },
     worldPlaces: {
       area: color('--color-map-visited-area', DEFAULT_MAP_VISITED_AREA),
       areaCore: color('--color-map-visited-area-core', DEFAULT_MAP_VISITED_AREA_CORE),
