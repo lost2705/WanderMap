@@ -49,6 +49,9 @@
   --color-map-marker-ring: rgb(255 253 248 / 58%);
   --color-map-visited-area: #d97745;
   --color-map-visited-area-core: #b94f24;
+  --color-map-bucket-ring: #557765;
+  --color-map-bucket-halo: #d8c39a;
+  --color-map-bucket-fill: #fffdf8;
   --color-map-route: #bd5426;
   --color-map-country-fill: #df8a5f;
   --color-map-country-line: #98441f;
@@ -108,6 +111,9 @@
   --color-map-marker-ring: rgb(251 252 246 / 62%);
   --color-map-visited-area: #6f927e;
   --color-map-visited-area-core: #426b56;
+  --color-map-bucket-ring: #95662f;
+  --color-map-bucket-halo: #c9bea1;
+  --color-map-bucket-fill: #fbfcf6;
   --color-map-route: #4f775f;
   --color-map-country-fill: #7fa18b;
   --color-map-country-line: #496b58;
@@ -167,6 +173,9 @@
   --color-map-marker-ring: rgb(251 252 250 / 62%);
   --color-map-visited-area: #3f8195;
   --color-map-visited-area-core: #245e72;
+  --color-map-bucket-ring: #a35b3b;
+  --color-map-bucket-halo: #c8b99b;
+  --color-map-bucket-fill: #fbfcfa;
   --color-map-route: #245e72;
   --color-map-country-fill: #5f92a1;
   --color-map-country-line: #2c6577;
@@ -226,6 +235,9 @@
   --color-map-marker-ring: rgb(255 253 251 / 62%);
   --color-map-visited-area: #89739d;
   --color-map-visited-area-core: #66527d;
+  --color-map-bucket-ring: #647453;
+  --color-map-bucket-halo: #cdbb9d;
+  --color-map-bucket-fill: #fffdfb;
   --color-map-route: #6d5a84;
   --color-map-country-fill: #9787aa;
   --color-map-country-line: #655477;
@@ -285,6 +297,9 @@
   --color-map-marker-ring: rgb(255 250 246 / 62%);
   --color-map-visited-area: #9a5061;
   --color-map-visited-area-core: #773445;
+  --color-map-bucket-ring: #607761;
+  --color-map-bucket-halo: #d2ba95;
+  --color-map-bucket-fill: #fffaf6;
   --color-map-route: #7a3344;
   --color-map-country-fill: #a36570;
   --color-map-country-line: #713040;
@@ -345,6 +360,9 @@
   --color-map-marker-ring: rgb(243 237 226 / 48%);
   --color-map-visited-area: #f09a68;
   --color-map-visited-area-core: #ffc09c;
+  --color-map-bucket-ring: #f0c67d;
+  --color-map-bucket-halo: #9a7447;
+  --color-map-bucket-fill: #20333e;
   --color-map-route: #f09a68;
   --color-map-country-fill: #e18a62;
   --color-map-country-line: #ffc09c;

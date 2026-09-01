@@ -13,7 +13,6 @@ interface TripListProps {
 }
 
 export function TripList({ children, trips, overview, selectedTripId, isLoading, onSelect, onCreate }: TripListProps) {
-  const placeCount = new Set((overview?.markers ?? []).map((marker) => marker.cityId)).size
   const isGlobalOverview = selectedTripId === null
 
   return (
@@ -63,29 +62,6 @@ export function TripList({ children, trips, overview, selectedTripId, isLoading,
         <p className="journey-selection-hint">Select a journey to open its travel timeline.</p>
       ) : null}
       {!isLoading && isGlobalOverview ? children : null}
-      {!isLoading && isGlobalOverview ? (
-        <section className="atlas-summary" aria-labelledby="atlas-stats-heading">
-          <p className="eyebrow" id="atlas-stats-heading">Stats</p>
-          <dl className="atlas-stats" aria-label="Travel atlas summary">
-            <div>
-              <dt>Places</dt>
-              <dd>{placeCount}</dd>
-            </div>
-            <div>
-              <dt>Countries</dt>
-              <dd>{overview?.visitedCountryCodes.length ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Journeys</dt>
-              <dd>{trips.length}</dd>
-            </div>
-            <div>
-              <dt>Memories</dt>
-              <dd>{overview?.memoryCount ?? 0}</dd>
-            </div>
-          </dl>
-        </section>
-      ) : null}
     </section>
   )
 }

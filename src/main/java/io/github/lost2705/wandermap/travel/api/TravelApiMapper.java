@@ -119,7 +119,7 @@ final class TravelApiMapper {
                 .toList();
     }
 
-    private static CityResponse toResponse(City city) {
+    static CityResponse toResponse(City city) {
         return new CityResponse(
                 city.getId(), city.getName(), city.getLatitude(), city.getLongitude(), toResponse(city.getCountry()));
     }

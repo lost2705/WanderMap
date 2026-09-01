@@ -66,6 +66,25 @@ export interface TripMapOverview {
   memoryCount: number
 }
 
+export interface TravelProfile {
+  journeyCount: number
+  visitCount: number
+  uniqueCityCount: number
+  countryCount: number
+  travelDayCount: number
+  memoryCount: number
+  photoCount: number
+  revisitedCityCount: number
+  revisitedCountryCount: number
+}
+
+export interface BucketListItem {
+  id: string
+  city: City
+  createdAt: string
+  visited: boolean
+}
+
 export interface PlaceDetails {
   city: City
   visitCount: number
@@ -110,6 +129,13 @@ export interface AddStopInput {
   arrivalDate?: string | null
   departureDate?: string | null
   note?: string | null
+}
+
+export interface AddBucketListItemInput {
+  countryCode: string
+  cityName: string
+  latitude: number
+  longitude: number
 }
 
 export interface StopJournalInput {

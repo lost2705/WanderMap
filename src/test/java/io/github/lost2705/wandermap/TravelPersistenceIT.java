@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.lost2705.wandermap.travel.domain.City;
+import io.github.lost2705.wandermap.travel.domain.BucketListItem;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
+import io.github.lost2705.wandermap.travel.persistence.BucketListItemRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
@@ -35,6 +37,9 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     private CityRepository cityRepository;
 
     @Autowired
+    private BucketListItemRepository bucketListItemRepository;
+
+    @Autowired
     private TripRepository tripRepository;
 
     @Autowired
@@ -53,11 +58,11 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 SELECT COUNT(*)
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                  AND table_name IN ('countries', 'cities', 'trips', 'trip_stops', 'trip_stop_photos')
+                  AND table_name IN ('countries', 'cities', 'trips', 'trip_stops', 'trip_stop_photos', 'bucket_list_items')
                 """,
                 Integer.class);
 
-        assertThat(travelTableCount).isEqualTo(5);
+        assertThat(travelTableCount).isEqualTo(6);
         assertThat(countryRepository.findById("IT"))
                 .isPresent()
                 .get()
@@ -65,8 +70,26 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 .isEqualTo("Italy");
 
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '8' AND success = TRUE",
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '9' AND success = TRUE",
                 Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void persistsOneBucketListItemPerCanonicalCityWithoutOwningTheCity() {
+        City city = persistCity("Bucket city " + UUID.randomUUID());
+        BucketListItem item = bucketListItemRepository.saveAndFlush(new BucketListItem(city));
+        entityManager.clear();
+
+        assertThat(bucketListItemRepository.findAllWithCityAndCountry())
+                .anySatisfy(reloaded -> {
+                    assertThat(reloaded.getId()).isEqualTo(item.getId());
+                    assertThat(reloaded.getCity().getId()).isEqualTo(city.getId());
+                    assertThat(reloaded.getCreatedAt()).isNotNull();
+                });
+
+        assertThatThrownBy(() -> bucketListItemRepository.saveAndFlush(new BucketListItem(city)))
+                .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+                .hasMessageContaining("uq_bucket_list_items_city");
     }
 
     @Test

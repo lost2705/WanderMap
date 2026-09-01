@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from './api/client'
+import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { getPlaceDetails } from './api/places'
+import { getTravelProfile } from './api/profile'
 import { applyTheme, initializeTheme, persistTheme } from './appearance/theme'
 import type { Theme } from './appearance/theme'
 import {
@@ -18,16 +20,19 @@ import {
   uploadStopPhoto,
 } from './api/trips'
 import { AppearanceControl } from './components/AppearanceControl'
+import { BucketListSection } from './components/BucketListSection'
 import { Itinerary } from './components/Itinerary'
 import { MemoryView } from './components/MemoryView'
 import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
 import { WorldPlaceNavigation } from './components/WorldPlaceNavigation'
+import { WorldTravelStatsBar } from './components/WorldTravelStatsBar'
 import { orderedMemoryPhotos, visitForTripStop } from './components/memoryPresentation'
 import { MapView } from './features/map/MapView'
 import type {
   City,
+  BucketListItem,
   CitySearchResult,
   PlaceDetails,
   PlaceVisit,
@@ -35,6 +40,7 @@ import type {
   Trip,
   TripDetailsInput,
   TripMapOverview,
+  TravelProfile,
   TripStop,
   TripStopPhoto,
   TripSummary,
@@ -71,6 +77,8 @@ export default function App({ initialTheme }: AppProps) {
   const [theme, setTheme] = useState<Theme>(() => initialTheme ?? initializeTheme())
   const [trips, setTrips] = useState<TripSummary[]>([])
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
+  const [travelProfile, setTravelProfile] = useState<TravelProfile | null>(null)
+  const [bucketListItems, setBucketListItems] = useState<BucketListItem[]>([])
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
   const [atlasView, setAtlasView] = useState<AtlasView>({ kind: 'map' })
@@ -81,6 +89,7 @@ export default function App({ initialTheme }: AppProps) {
   const [placeDetailsRequestVersion, setPlaceDetailsRequestVersion] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+  const [isBucketListMutating, setIsBucketListMutating] = useState(false)
   const [formMode, setFormMode] = useState<TripFormMode>(null)
   const [error, setError] = useState<string | null>(null)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
@@ -102,6 +111,13 @@ export default function App({ initialTheme }: AppProps) {
     ? placeDetails
     : null
   const activeMemory = memoryForView(atlasView, activePlaceDetails, activeSelectedTrip)
+  const activeBucketListItem = activePlaceDetails
+    ? bucketListItems.find((item) => item.city.id === activePlaceDetails.city.id) ?? null
+    : null
+  const showWorldTravelStats = selectedTripId === null
+    && atlasView.kind === 'map'
+    && travelProfile !== null
+    && (travelProfile.journeyCount > 0 || travelProfile.visitCount > 0)
 
   useEffect(() => {
     if (atlasView.kind === 'place' && focusOpenedPlaceRef.current) {
@@ -321,9 +337,16 @@ export default function App({ initialTheme }: AppProps) {
   async function loadApplication(preferredTripId?: string) {
     setIsLoading(true)
     try {
-      const [nextTrips, nextOverview] = await Promise.all([listTrips(), getMapOverview()])
+      const [nextTrips, nextOverview, nextTravelProfile, nextBucketListItems] = await Promise.all([
+        listTrips(),
+        getMapOverview(),
+        getTravelProfile(),
+        listBucketListItems(),
+      ])
       setTrips(nextTrips)
       setOverview(nextOverview)
+      setTravelProfile(nextTravelProfile)
+      setBucketListItems(nextBucketListItems)
       setSelectedTripId((current) => {
         const candidate = preferredTripId ?? current
         return candidate && nextTrips.some((trip) => trip.id === candidate) ? candidate : (nextTrips[0]?.id ?? null)
@@ -360,6 +383,7 @@ export default function App({ initialTheme }: AppProps) {
     setTrips((currentTrips) => [...currentTrips, toTripSummary(createdTrip)].sort(compareTripSummaries))
     setSelectedTripId(createdTrip.id)
     setSelectedTrip(createdTrip)
+    await refreshTravelProfile()
   }
 
   async function handleUpdate(input: TripDetailsInput) {
@@ -381,6 +405,7 @@ export default function App({ initialTheme }: AppProps) {
           description: updatedTrip.description,
         }
       : trip))
+    await refreshTravelProfile()
   }
 
   async function handleDeleteTrip() {
@@ -411,6 +436,36 @@ export default function App({ initialTheme }: AppProps) {
       ? { ...trip, stopCount: trip.stopCount + 1 }
       : trip))
     setOverview((currentOverview) => appendStopToOverview(currentOverview, tripId, createdStop))
+    setBucketListItems((current) => current.map((item) => item.city.id === createdStop.city.id
+      ? { ...item, visited: true }
+      : item))
+    await refreshTravelProfile()
+  }
+
+  async function handleAddBucketListItem(city: CitySearchResult): Promise<BucketListItem> {
+    setIsBucketListMutating(true)
+    try {
+      const created = await addBucketListItem({
+        countryCode: city.countryCode,
+        cityName: city.name,
+        latitude: city.latitude,
+        longitude: city.longitude,
+      })
+      setBucketListItems((current) => [...current, created].sort(compareBucketListItems))
+      return created
+    } finally {
+      setIsBucketListMutating(false)
+    }
+  }
+
+  async function handleRemoveBucketListItem(itemId: string): Promise<void> {
+    setIsBucketListMutating(true)
+    try {
+      await deleteBucketListItem(itemId)
+      setBucketListItems((current) => current.filter((item) => item.id !== itemId))
+    } finally {
+      setIsBucketListMutating(false)
+    }
   }
 
   async function handleMoveStop(stopId: string, position: number) {
@@ -440,6 +495,7 @@ export default function App({ initialTheme }: AppProps) {
           stops: replaceStop(currentTrip.stops, updatedStop),
         }
       : currentTrip)
+    await refreshTravelProfile()
   }
 
   async function handleUploadPhoto(stopId: string, file: File) {
@@ -454,6 +510,7 @@ export default function App({ initialTheme }: AppProps) {
           stops: updateStopPhotos(currentTrip.stops, stopId, (photos) => [...photos, createdPhoto]),
         }
       : currentTrip)
+    await refreshTravelProfile()
   }
 
   async function handleDeletePhoto(stopId: string, photoId: string) {
@@ -474,6 +531,7 @@ export default function App({ initialTheme }: AppProps) {
           ),
         }
       : currentTrip)
+    await refreshTravelProfile()
   }
 
   async function handleMemoryUpdateJournal(input: StopJournalInput) {
@@ -484,7 +542,7 @@ export default function App({ initialTheme }: AppProps) {
 
     const updatedStop = await performMutation(() => updateStopJournal(target.tripId, target.stopId, input))
     applyMemoryStopUpdate(target, updatedStop)
-    await refreshOverview()
+    await Promise.all([refreshOverview(), refreshTravelProfile()])
   }
 
   async function handleMemoryUploadPhoto(file: File) {
@@ -495,7 +553,7 @@ export default function App({ initialTheme }: AppProps) {
 
     const createdPhoto = await performMutation(() => uploadStopPhoto(target.tripId, target.stopId, file))
     applyMemoryPhotoUpdate(target, (photos) => orderedMemoryPhotos([...photos, createdPhoto]))
-    await refreshOverview()
+    await Promise.all([refreshOverview(), refreshTravelProfile()])
   }
 
   async function handleMemoryDeletePhoto(photoId: string) {
@@ -508,7 +566,7 @@ export default function App({ initialTheme }: AppProps) {
     applyMemoryPhotoUpdate(target, (photos) => photos
       .filter((photo) => photo.id !== photoId)
       .map((photo, index) => ({ ...photo, position: index + 1 })))
-    await refreshOverview()
+    await Promise.all([refreshOverview(), refreshTravelProfile()])
   }
 
   function applyMemoryStopUpdate(target: MemoryMutationTarget, updatedStop: TripStop) {
@@ -612,6 +670,14 @@ export default function App({ initialTheme }: AppProps) {
     }
   }
 
+  async function refreshTravelProfile() {
+    try {
+      setTravelProfile(await getTravelProfile())
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }
+
   function handleThemeChange(nextTheme: Theme) {
     applyTheme(nextTheme)
     persistTheme(nextTheme)
@@ -659,7 +725,15 @@ export default function App({ initialTheme }: AppProps) {
           }}
           onSelect={handleSelectTrip}
         >
-          <WorldPlaceNavigation overview={overview} onSelectPlace={handleOpenPlaceFromNavigation} />
+          <>
+            <WorldPlaceNavigation overview={overview} onSelectPlace={handleOpenPlaceFromNavigation} />
+            <BucketListSection
+              isMutating={isBucketListMutating}
+              items={bucketListItems}
+              onAdd={handleAddBucketListItem}
+              onSelectPlace={handleOpenPlaceFromNavigation}
+            />
+          </>
         </TripList>
         {formMode === 'create' ? (
           <section className="editor-panel" aria-label="Create a journey">
@@ -712,7 +786,7 @@ export default function App({ initialTheme }: AppProps) {
         ) : null}
         <AppearanceControl theme={theme} onChange={handleThemeChange} />
       </aside>
-      <div className="content-area" ref={contentAreaRef}>
+      <div className={`content-area${showWorldTravelStats ? ' has-world-stats' : ''}`} ref={contentAreaRef}>
         {atlasView.kind !== 'memory' ? (
           <div className="mobile-map-controls" aria-label="Map navigation">
             <button
@@ -749,19 +823,26 @@ export default function App({ initialTheme }: AppProps) {
           </div>
         ) : null}
         <MapView
+          bucketListItems={bucketListItems}
           worldResetKey={worldResetKey}
           overview={overview}
           selectedTrip={activeSelectedTrip}
           trips={trips}
           onSelectPlace={handleOpenPlace}
         />
+        {showWorldTravelStats ? (
+          <WorldTravelStatsBar profile={travelProfile} />
+        ) : null}
         {selectedTripId === null && atlasView.kind === 'place' ? (
           <PlaceDetailsPanel
+            bucketListItem={activeBucketListItem}
             closeButtonRef={placeDetailsCloseRef}
             details={activePlaceDetails}
             error={placeDetailsError}
             isLoading={isPlaceDetailsLoading}
+            isBucketListMutating={isBucketListMutating}
             onClose={handleClosePlace}
+            onRemoveFromBucketList={handleRemoveBucketListItem}
             onRetry={() => setPlaceDetailsRequestVersion((version) => version + 1)}
             onViewMemory={handleOpenPlaceMemory}
             onViewTrip={handleViewTrip}
@@ -872,6 +953,10 @@ function compareTripSummaries(left: TripSummary, right: TripSummary): number {
 
 function compareStops(left: TripStop, right: TripStop): number {
   return left.position - right.position
+}
+
+function compareBucketListItems(left: BucketListItem, right: BucketListItem): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
 }
 
 function appendStopToOverview(

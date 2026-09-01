@@ -38,6 +38,102 @@ class TravelApiIT extends PostgresIntegrationTestSupport {
     private JdbcTemplate jdbcTemplate;
 
     @Test
+    void exposesTheTravelProfileContract() throws Exception {
+        HttpResponse<String> response = request("GET", "/api/travel-profile", null);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode profile = json(response);
+        List<String> fieldNames = List.of(
+                "journeyCount",
+                "visitCount",
+                "uniqueCityCount",
+                "countryCount",
+                "travelDayCount",
+                "memoryCount",
+                "photoCount",
+                "revisitedCityCount",
+                "revisitedCountryCount");
+        assertThat(profile.size()).isEqualTo(fieldNames.size());
+        fieldNames.forEach(fieldName -> {
+            JsonNode value = profile.path(fieldName);
+            assertThat(value.isIntegralNumber()).isTrue();
+            assertThat(value.asLong()).isNotNegative();
+        });
+    }
+
+    @Test
+    void managesBucketListCitiesAndDerivesVisitedStateFromTripStops() throws Exception {
+        JsonNode profileBeforeBucketChanges = json(request("GET", "/api/travel-profile", null));
+        HttpResponse<String> addAlabamaResponse = request(
+                "POST",
+                "/api/bucket-list",
+                """
+                {"countryCode":"US","cityName":"Florence","latitude":34.7998125,"longitude":-87.6773125}
+                """);
+        assertThat(addAlabamaResponse.statusCode()).isEqualTo(201);
+        JsonNode alabama = json(addAlabamaResponse);
+        String alabamaItemId = alabama.path("id").asText();
+        String alabamaCityId = alabama.path("city").path("id").asText();
+        assertThat(alabama.path("visited").asBoolean()).isFalse();
+        assertThat(alabama.path("city").path("latitude").asDouble()).isEqualTo(34.799813d);
+        assertThat(addAlabamaResponse.headers().firstValue("Location"))
+                .contains("/api/bucket-list/" + alabamaItemId);
+
+        HttpResponse<String> duplicateResponse = request(
+                "POST",
+                "/api/bucket-list",
+                """
+                {"countryCode":"US","cityName":"  FLORENCE  ","latitude":34.7998125,"longitude":-87.6773125}
+                """);
+        assertThat(duplicateResponse.statusCode()).isEqualTo(409);
+        assertThat(json(duplicateResponse).path("code").asText()).isEqualTo("BUCKET_LIST_DUPLICATE");
+
+        JsonNode southCarolina = json(request(
+                "POST",
+                "/api/bucket-list",
+                """
+                {"countryCode":"US","cityName":"Florence","latitude":34.1954,"longitude":-79.7626}
+                """));
+        assertThat(southCarolina.path("city").path("id").asText()).isNotEqualTo(alabamaCityId);
+        assertThat(json(request("GET", "/api/travel-profile", null))).isEqualTo(profileBeforeBucketChanges);
+
+        JsonNode coordinateLess = json(request(
+                "POST",
+                "/api/bucket-list",
+                "{\"countryCode\":\"IT\",\"cityName\":\"Venice\"}"));
+        assertThat(coordinateLess.path("city").path("latitude").asDouble()).isEqualTo(45.4408d);
+        assertThat(coordinateLess.path("city").path("longitude").asDouble()).isEqualTo(12.3155d);
+
+        HttpResponse<String> createTripResponse = request(
+                "POST",
+                "/api/trips",
+                "{\"name\":\"Bucket visit " + UUID.randomUUID() + "\"}");
+        String tripId = json(createTripResponse).path("id").asText();
+        JsonNode stop = addStopWithLocation(tripId, "US", "Florence", 34.7998125, -87.6773125);
+        assertThat(stop.path("city").path("id").asText()).isEqualTo(alabamaCityId);
+
+        JsonNode list = json(request("GET", "/api/bucket-list", null));
+        assertThat(list).anySatisfy(item -> {
+            assertThat(item.path("id").asText()).isEqualTo(alabamaItemId);
+            assertThat(item.path("visited").asBoolean()).isTrue();
+        });
+        assertThat(list).anySatisfy(item -> {
+            assertThat(item.path("id").asText()).isEqualTo(southCarolina.path("id").asText());
+            assertThat(item.path("visited").asBoolean()).isFalse();
+        });
+
+        HttpResponse<String> deleteResponse = request("DELETE", "/api/bucket-list/" + alabamaItemId, null);
+        assertThat(deleteResponse.statusCode()).isEqualTo(204);
+        JsonNode placeAfterRemoval = json(request("GET", "/api/places/" + alabamaCityId, null));
+        assertThat(placeAfterRemoval.path("city").path("id").asText()).isEqualTo(alabamaCityId);
+        assertThat(placeAfterRemoval.path("visitCount").asInt()).isEqualTo(1);
+
+        HttpResponse<String> missingDelete = request("DELETE", "/api/bucket-list/" + UUID.randomUUID(), null);
+        assertThat(missingDelete.statusCode()).isEqualTo(404);
+        assertThat(json(missingDelete).path("code").asText()).isEqualTo("BUCKET_LIST_ITEM_NOT_FOUND");
+    }
+
+    @Test
     void managesTripAndStopsEndToEnd() throws Exception {
         HttpResponse<String> countriesResponse = request("GET", "/api/countries", null);
         assertThat(countriesResponse.statusCode()).isEqualTo(200);

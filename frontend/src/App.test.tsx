@@ -3,14 +3,34 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { THEMES, THEME_STORAGE_KEY } from './appearance/theme'
-import type { CitySearchResult, PlaceDetails, Trip, TripMapOverview, TripStop, TripSummary } from './types/travel'
+import { ApiError } from './api/client'
+import type {
+  BucketListItem,
+  CitySearchResult,
+  PlaceDetails,
+  TravelProfile,
+  Trip,
+  TripMapOverview,
+  TripStop,
+  TripSummary,
+} from './types/travel'
 
 vi.mock('./api/cities', () => ({
   searchCities: vi.fn(),
 }))
 
+vi.mock('./api/bucketList', () => ({
+  addBucketListItem: vi.fn(),
+  deleteBucketListItem: vi.fn(),
+  listBucketListItems: vi.fn(),
+}))
+
 vi.mock('./api/places', () => ({
   getPlaceDetails: vi.fn(),
+}))
+
+vi.mock('./api/profile', () => ({
+  getTravelProfile: vi.fn(),
 }))
 
 vi.mock('./api/trips', () => ({
@@ -36,11 +56,13 @@ vi.mock('./features/map/MapView', async () => {
   return {
     MapView: ({
       overview,
+      bucketListItems,
       selectedTrip,
       onSelectPlace,
       worldResetKey,
     }: {
       overview: TripMapOverview | null
+      bucketListItems: BucketListItem[]
       selectedTrip: Trip | null
       onSelectPlace: (cityId: string) => void
       worldResetKey: number
@@ -53,6 +75,7 @@ vi.mock('./features/map/MapView', async () => {
         <div
           data-countries={countryCodes.join(',')}
           data-city-ids={markers.map((marker) => marker.cityId).join(',')}
+          data-bucket-city-ids={bucketListItems.map((item) => item.city.id).join(',')}
           data-marker-count={markers.length}
           data-markers={markers.flatMap((marker) => marker.visits.map((visit) => visit.tripId)).join(',')}
           data-route={routes[0]?.coordinates.map((coordinate) => coordinate.join(',')).join('|') ?? ''}
@@ -85,8 +108,10 @@ import {
   updateStopJournal,
   uploadStopPhoto,
 } from './api/trips'
+import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { searchCities } from './api/cities'
 import { getPlaceDetails } from './api/places'
+import { getTravelProfile } from './api/profile'
 import App from './App'
 
 const tripSummaries: TripSummary[] = [
@@ -185,6 +210,18 @@ const overview: TripMapOverview = {
   ],
 }
 
+const travelProfile: TravelProfile = {
+  journeyCount: 2,
+  visitCount: 2,
+  uniqueCityCount: 2,
+  countryCount: 2,
+  travelDayCount: 0,
+  memoryCount: 1,
+  photoCount: 1,
+  revisitedCityCount: 0,
+  revisitedCountryCount: 0,
+}
+
 const romePlace: PlaceDetails = {
   city: italyTrip.stops[0]!.city,
   visitCount: 1,
@@ -248,6 +285,8 @@ beforeEach(() => {
   delete document.documentElement.dataset.theme
   vi.mocked(listTrips).mockResolvedValue(tripSummaries)
   vi.mocked(getMapOverview).mockResolvedValue(overview)
+  vi.mocked(getTravelProfile).mockResolvedValue(travelProfile)
+  vi.mocked(listBucketListItems).mockResolvedValue([])
   vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? italyTrip : japanTrip))
   vi.mocked(getPlaceDetails).mockImplementation((cityId) => Promise.resolve(cityId === 'city-rome' ? romePlace : tokyoPlace))
   vi.mocked(searchCities).mockResolvedValue([])
@@ -267,7 +306,9 @@ describe('App trip selection', () => {
     await screen.findByRole('heading', { name: 'Italy' })
 
     const italyButton = screen.getByRole('button', { name: 'Italy, 1 place' })
+    const mapSurface = screen.getByTestId('map-state')
     expect(italyButton.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
     expectMapState('italy', 'IT', 'italy')
 
     fireEvent.click(italyButton)
@@ -277,15 +318,44 @@ describe('App trip selection', () => {
     expect(screen.queryByRole('button', { name: 'Edit journey' })).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Add a stop' })).toBeNull()
     expect(screen.getByText('Select a journey to open its travel timeline.')).toBeTruthy()
-    expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places2Countries2Journeys2Memories1')
+    expect(screen.getByLabelText('World travel statistics').textContent)
+      .toBe('Countries2Places2Journeys2Travel days0Memories1')
     expectMapState('global', 'IT,JP', 'italy,japan')
 
     fireEvent.click(italyButton)
 
     await screen.findByRole('heading', { name: 'Italy' })
     expect(italyButton.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
     expectMapState('italy', 'IT', 'italy')
+
+    fireEvent.click(italyButton)
+
+    expect(screen.getByLabelText('World travel statistics').textContent)
+      .toBe('Countries2Places2Journeys2Travel days0Memories1')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('hides the World stats bar for an empty profile', async () => {
+    vi.mocked(listTrips).mockResolvedValue([])
+    vi.mocked(getMapOverview).mockResolvedValue({ visitedCountryCodes: [], markers: [], memoryCount: 0 })
+    vi.mocked(getTravelProfile).mockResolvedValue({
+      journeyCount: 0,
+      visitCount: 0,
+      uniqueCityCount: 0,
+      countryCount: 0,
+      travelDayCount: 0,
+      memoryCount: 0,
+      photoCount: 0,
+      revisitedCityCount: 0,
+      revisitedCountryCount: 0,
+    })
+
+    render(<App />)
+
+    await screen.findByText('Your atlas is waiting for its first journey.')
+    expect(screen.queryByRole('region', { name: 'Travel statistics' })).toBeNull()
+    expectMapState('global', '', '')
   })
 
   it('switches directly from one selected trip to another', async () => {
@@ -352,6 +422,9 @@ describe('App trip selection', () => {
     vi.mocked(getMapOverview)
       .mockResolvedValueOnce(overview)
       .mockResolvedValueOnce({ ...overview, memoryCount: 2 })
+    vi.mocked(getTravelProfile)
+      .mockResolvedValueOnce(travelProfile)
+      .mockResolvedValue({ ...travelProfile, memoryCount: 2, photoCount: 2 })
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
     const file = new File(['jpeg'], 'Rome evening.jpg', { type: 'image/jpeg' })
@@ -366,8 +439,9 @@ describe('App trip selection', () => {
     expectMapState('italy', 'IT', 'italy')
 
     fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
-    await waitFor(() => expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places2Countries2Journeys2Memories2'))
+    await waitFor(() => expect(screen.getByLabelText('World travel statistics').textContent)
+      .toContain('Memories2'))
+    expect(screen.queryByText('Photos')).toBeNull()
     expect(getMapOverview).toHaveBeenCalledTimes(2)
   })
 
@@ -415,6 +489,110 @@ describe('App trip selection', () => {
     expect(getMapOverview).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
     expectMapState('italy', 'IT', 'italy')
+  })
+})
+
+describe('App Want to visit flow', () => {
+  const kyotoSearch: CitySearchResult = {
+    name: 'Kyoto',
+    countryName: 'Japan',
+    regionName: 'Kyoto Prefecture',
+    countryCode: 'JP',
+    latitude: 35.0116,
+    longitude: 135.7681,
+  }
+  const kyotoItem: BucketListItem = {
+    id: 'bucket-kyoto',
+    city: {
+      id: 'city-kyoto',
+      name: 'Kyoto',
+      latitude: 35.0116,
+      longitude: 135.7681,
+      country: { code: 'JP', name: 'Japan' },
+    },
+    createdAt: '2026-09-01T12:00:00Z',
+    visited: false,
+  }
+
+  it('adds a searched city without changing history profile metrics or recreating the map surface', async () => {
+    vi.mocked(searchCities).mockResolvedValue([kyotoSearch])
+    vi.mocked(addBucketListItem).mockResolvedValue(kyotoItem)
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    const mapSurface = screen.getByTestId('map-state')
+    const initialProfile = screen.getByLabelText('World travel statistics').textContent
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a place to Want to visit' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Where would you like to go?' }), {
+      target: { value: 'Kyoto' },
+    })
+    fireEvent.click(within(await screen.findByRole('listbox')).getByRole('option'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save place' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /KyotoJapanWant to visit/ })).toBeTruthy())
+    expect(addBucketListItem).toHaveBeenCalledWith({
+      countryCode: 'JP',
+      cityName: 'Kyoto',
+      latitude: 35.0116,
+      longitude: 135.7681,
+    })
+    expect(mapSurface.getAttribute('data-bucket-city-ids')).toBe('city-kyoto')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getByLabelText('World travel statistics').textContent).toBe(initialProfile)
+    expect(getTravelProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens a bucket-only Place Details state and removes only the bucket item after success', async () => {
+    const kyotoPlace: PlaceDetails = { city: kyotoItem.city, visitCount: 0, visits: [] }
+    vi.mocked(listBucketListItems).mockResolvedValue([kyotoItem])
+    vi.mocked(getPlaceDetails).mockImplementation((cityId) => Promise.resolve(
+      cityId === 'city-kyoto' ? kyotoPlace : cityId === 'city-rome' ? romePlace : tokyoPlace,
+    ))
+    vi.mocked(deleteBucketListItem).mockResolvedValue()
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    const initialProfile = screen.getByLabelText('World travel statistics').textContent
+
+    const kyoto = screen.getByRole('button', { name: /KyotoJapanWant to visit/ })
+    kyoto.focus()
+    fireEvent.click(kyoto)
+
+    expect(await screen.findByRole('heading', { name: 'Kyoto' })).toBeTruthy()
+    expect(screen.getByText('Not visited yet')).toBeTruthy()
+    expect(screen.getByText('Want to visit', { selector: '.place-details-states > span' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from Want to visit' }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove from Want to visit' })).toBeNull())
+    expect(deleteBucketListItem).toHaveBeenCalledWith('bucket-kyoto')
+    expect(screen.getByRole('heading', { name: 'Kyoto' })).toBeTruthy()
+    expect(screen.getByTestId('map-state').getAttribute('data-bucket-city-ids')).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Close place details' }))
+    expect(screen.getByLabelText('World travel statistics').textContent).toBe(initialProfile)
+    expect(getTravelProfile).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the city selection and shows a recoverable duplicate response inline', async () => {
+    vi.mocked(searchCities).mockResolvedValue([kyotoSearch])
+    vi.mocked(addBucketListItem).mockRejectedValue(new ApiError(
+      409,
+      'BUCKET_LIST_DUPLICATE',
+      'city is already on the bucket list',
+    ))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add a place to Want to visit' }))
+    fireEvent.change(screen.getByRole('combobox', { name: 'Where would you like to go?' }), {
+      target: { value: 'Kyoto' },
+    })
+    fireEvent.click(within(await screen.findByRole('listbox')).getByRole('option'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save place' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('already in Want to visit')
+    expect(screen.getByText('Selected city')).toBeTruthy()
+    expect(screen.getByTestId('map-state').getAttribute('data-bucket-city-ids')).toBe('')
   })
 })
 
@@ -477,6 +655,17 @@ describe('App Journey creation and city search flow', () => {
       .mockResolvedValueOnce([barcelona])
     vi.mocked(getMapOverview).mockReset()
     vi.mocked(getMapOverview).mockResolvedValueOnce(overview).mockResolvedValue(finalOverview)
+    vi.mocked(getTravelProfile)
+      .mockResolvedValueOnce(travelProfile)
+      .mockResolvedValue({
+        ...travelProfile,
+        journeyCount: 3,
+        visitCount: 5,
+        uniqueCityCount: 4,
+        countryCount: 3,
+        travelDayCount: 12,
+        revisitedCityCount: 1,
+      })
 
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })
@@ -542,8 +731,8 @@ describe('App Journey creation and city search flow', () => {
     expect(mapSurface.getAttribute('data-route')).toBe('')
     expect(mapSurface.getAttribute('data-marker-count')).toBe('4')
     expect(screen.getAllByRole('button', { name: 'Open memories for Barcelona' })).toHaveLength(1)
-    expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places4Countries3Journeys3Memories1')
+    expect(screen.getByLabelText('World travel statistics').textContent)
+      .toBe('Countries3Places4Journeys3Travel days12Memories1')
     expect(screen.getByRole('button', { name: 'Spain 2027, 3 places' }).textContent)
       .toContain('Barcelona · Valencia')
     expect(getMapOverview).toHaveBeenCalledTimes(2)
@@ -1096,6 +1285,11 @@ describe('App Memory editing', () => {
       stops: [{ ...italyTrip.stops[0]!, note: romePlace.visits[0]!.note, photos: romePlace.visits[0]!.photos }],
     }
     vi.mocked(getMapOverview).mockImplementation(() => Promise.resolve({ ...overview, memoryCount }))
+    vi.mocked(getTravelProfile).mockImplementation(() => Promise.resolve({
+      ...travelProfile,
+      memoryCount,
+      photoCount: memoryCount,
+    }))
     vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(
       tripId === 'italy' ? persistedItaly : japanTrip,
     ))
@@ -1132,8 +1326,8 @@ describe('App Memory editing', () => {
     expect(screen.getByText('This visit does not have journal notes or photos yet.')).toBeTruthy()
     expect(screen.getByText('Visit', { selector: '[aria-current="page"]' })).toBeTruthy()
     expect(deleteStopPhoto).toHaveBeenCalledWith('italy', 'rome', 'rome-memory')
-    await waitFor(() => expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places2Countries2Journeys2Memories0'))
+    await waitFor(() => expect(getTravelProfile).toHaveBeenCalled())
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /Back to Rome/ }))
     expect(screen.queryByRole('button', { name: 'View memory →' })).toBeNull()
@@ -1190,6 +1384,23 @@ describe('App Memory editing', () => {
 })
 
 describe('App appearance', () => {
+  it('keeps the World stats bar and map surface stable across a theme switch', async () => {
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    const mapSurface = screen.getByTestId('map-state')
+    const statsBar = screen.getByRole('region', { name: 'Travel statistics' })
+    const values = screen.getByLabelText('World travel statistics').textContent
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Appearance' }), { target: { value: 'midnight' } })
+
+    expect(document.documentElement.dataset.theme).toBe('midnight')
+    expect(screen.getByRole('region', { name: 'Travel statistics' })).toBe(statsBar)
+    expect(screen.getByLabelText('World travel statistics').textContent).toBe(values)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(getTravelProfile).toHaveBeenCalledTimes(1)
+  })
+
   it('defaults to Terracotta and selects every theme without changing the Journey or map surface', async () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Italy' })

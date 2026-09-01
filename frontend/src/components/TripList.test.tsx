@@ -73,8 +73,6 @@ describe('TripList journey index', () => {
     expect(screen.getByText('Apr 5, 2026 – Apr 18, 2026')).toBeTruthy()
     expect(screen.getByText('Tokyo · Kyoto')).toBeTruthy()
     expect(screen.getByText('Spring trip through Japan.')).toBeTruthy()
-    expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places2Countries1Journeys1Memories4')
   })
 
   it('keeps different cityIds with the same name and disambiguates them by country', () => {
@@ -211,7 +209,7 @@ describe('TripList journey index', () => {
     expect(onCreate).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a truthful zeroed atlas summary for an empty global state', () => {
+  it('keeps the empty global sidebar focused on navigation', () => {
     render(
       <TripList
         isLoading={false}
@@ -224,7 +222,6 @@ describe('TripList journey index', () => {
     )
 
     expect(screen.getByText('Your atlas is waiting for its first journey.')).toBeTruthy()
-    expect(screen.getByLabelText('Travel atlas summary').textContent)
-      .toBe('Places0Countries0Journeys0Memories0')
+    expect(screen.queryByText('Your travel story')).toBeNull()
   })
 })

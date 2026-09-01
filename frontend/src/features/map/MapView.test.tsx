@@ -2,7 +2,11 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Trip, TripMapOverview } from '../../types/travel'
+import type { BucketListItem, Trip, TripMapOverview } from '../../types/travel'
+import {
+  BUCKET_LIST_RING_LAYER_ID,
+  BUCKET_LIST_SOURCE_ID,
+} from './bucketListLayers'
 import {
   COUNTRY_HIGHLIGHT_LAYER_ID,
   COUNTRY_HIGHLIGHT_SOURCE_ID,
@@ -202,6 +206,15 @@ beforeEach(() => {
       if (property === '--color-map-visited-area-core') {
         return midnight ? '#ffc09c' : '#b94f24'
       }
+      if (property === '--color-map-bucket-ring') {
+        return midnight ? '#f0c67d' : '#557765'
+      }
+      if (property === '--color-map-bucket-halo') {
+        return midnight ? '#9a7447' : '#d8c39a'
+      }
+      if (property === '--color-map-bucket-fill') {
+        return midnight ? '#20333e' : '#fffdf8'
+      }
       if (property === '--color-map-marker-border' || property === '--color-surface-raised') {
         return midnight ? '#f3ede2' : '#fffdf8'
       }
@@ -244,6 +257,8 @@ describe('MapView country highlight lifecycle', () => {
     await waitFor(() => expect(mapLifecycle.jumpTo).toHaveBeenCalledTimes(1))
     expect(mapLifecycle.jumpTo).toHaveBeenLastCalledWith(worldOverviewCamera(1072, 900))
     expect(mapLifecycle.setMinZoom).toHaveBeenLastCalledWith(worldOverviewCamera(1072, 900)?.zoom)
+    expect(screen.queryByRole('heading', { name: 'See where your stories take you.' })).toBeNull()
+    expect(screen.queryByText('A visual travel journal')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show routes' }))
     document.documentElement.dataset.theme = 'midnight'
@@ -253,6 +268,8 @@ describe('MapView country highlight lifecycle', () => {
     expect(mapLifecycle.jumpTo).toHaveBeenCalledTimes(1)
 
     view.rerender(<MapView {...props} selectedTrip={selectedRouteTrip()} />)
+    expect(screen.getByText('Journey map')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Japan' })).toBeTruthy()
     expect(mapLifecycle.setMinZoom).toHaveBeenLastCalledWith(worldOverviewCamera(1072, 900)?.zoom)
     expect(mapLifecycle.fitBounds).toHaveBeenLastCalledWith(expect.anything(), {
       padding: 90, maxZoom: 6, duration: 700, bearing: 0, pitch: 0,
@@ -581,6 +598,77 @@ describe('MapView country highlight lifecycle', () => {
     expect(onSelectPlace).toHaveBeenCalledWith('city-rome')
   })
 
+  it('keeps bucket places in a separate native source across data, Journey, theme, and click transitions', async () => {
+    const onSelectPlace = vi.fn()
+    const initialItems = [bucketItem(false)]
+    const view = render(
+      <MapView
+        bucketListItems={initialItems}
+        overview={mapOverview()}
+        selectedTrip={null}
+        trips={[]}
+        onSelectPlace={onSelectPlace}
+      />,
+    )
+
+    await waitFor(() => expect(bucketListSourceCalls()).toHaveLength(1))
+    expect(bucketListSourceCalls()[0]?.[1]).not.toHaveProperty('cluster')
+    expect(bucketListSourceDataCalls().at(-1)?.[1].features[0]).toMatchObject({
+      properties: { itemId: 'bucket-kyoto', cityId: 'city-kyoto', visited: false },
+      geometry: { coordinates: [135.7681, 35.0116] },
+    })
+
+    view.rerender(
+      <MapView
+        bucketListItems={[bucketItem(true)]}
+        overview={mapOverview()}
+        selectedTrip={null}
+        trips={[]}
+        onSelectPlace={onSelectPlace}
+      />,
+    )
+    await waitFor(() => expect(bucketListSourceDataCalls().at(-1)?.[1].features[0]?.properties.visited).toBe(true))
+    expect(bucketListSourceCalls()).toHaveLength(1)
+
+    view.rerender(
+      <MapView
+        bucketListItems={[bucketItem(true)]}
+        overview={mapOverview()}
+        selectedTrip={tripWithCountries('italy', 'IT')}
+        trips={[]}
+        onSelectPlace={onSelectPlace}
+      />,
+    )
+    expect(mapLifecycle.setLayoutProperty).toHaveBeenCalledWith(BUCKET_LIST_RING_LAYER_ID, 'visibility', 'none')
+
+    document.documentElement.dataset.theme = 'midnight'
+    await waitFor(() => expect(mapLifecycle.setPaintProperty)
+      .toHaveBeenCalledWith(BUCKET_LIST_RING_LAYER_ID, 'circle-stroke-color', '#f0c67d'))
+
+    view.rerender(
+      <MapView
+        bucketListItems={[bucketItem(true)]}
+        overview={mapOverview()}
+        selectedTrip={null}
+        trips={[]}
+        onSelectPlace={onSelectPlace}
+      />,
+    )
+    expect(mapLifecycle.setLayoutProperty).toHaveBeenCalledWith(BUCKET_LIST_RING_LAYER_ID, 'visibility', 'visible')
+    emitMapLayerEvent('click', BUCKET_LIST_RING_LAYER_ID, {
+      features: [{
+        type: 'Feature',
+        properties: { cityId: 'city-kyoto', cityName: 'Kyoto', countryName: 'Japan', visited: true },
+        geometry: { type: 'Point', coordinates: [135.7681, 35.0116] },
+      }],
+    })
+    expect(onSelectPlace).toHaveBeenCalledWith('city-kyoto')
+    expect(mapLifecycle.construct).toHaveBeenCalledTimes(1)
+    expect(worldPlaceSourceCalls()).toHaveLength(1)
+    expect(bucketListSourceCalls()).toHaveLength(1)
+    expect(view.container.querySelectorAll('.maplibregl-canvas')).toHaveLength(1)
+  })
+
   it('keeps an empty clustered source and omits irrelevant controls when there are no visited cities', async () => {
     const view = render(<MapView overview={null} selectedTrip={null} trips={[]} onSelectPlace={vi.fn()} />)
 
@@ -636,6 +724,16 @@ function worldPlaceSourceCalls() {
     .filter(([id]) => id === WORLD_PLACE_SOURCE_ID)
 }
 
+function bucketListSourceCalls() {
+  return mapLifecycle.addSource.mock.calls
+    .filter(([id]) => id === BUCKET_LIST_SOURCE_ID)
+}
+
+function bucketListSourceDataCalls() {
+  return mapLifecycle.sourceSetData.mock.calls
+    .filter(([id]) => id === BUCKET_LIST_SOURCE_ID)
+}
+
 function worldPlaceSourceDataCalls() {
   return mapLifecycle.sourceSetData.mock.calls
     .filter(([id]) => id === WORLD_PLACE_SOURCE_ID)
@@ -666,6 +764,21 @@ function countryBoundaries() {
         coordinates: [[[12, 42], [13, 42], [12, 43], [12, 42]]],
       },
     }],
+  }
+}
+
+function bucketItem(visited: boolean): BucketListItem {
+  return {
+    id: 'bucket-kyoto',
+    city: {
+      id: 'city-kyoto',
+      name: 'Kyoto',
+      latitude: 35.0116,
+      longitude: 135.7681,
+      country: { code: 'JP', name: 'Japan' },
+    },
+    createdAt: '2026-09-01T12:00:00Z',
+    visited,
   }
 }
 

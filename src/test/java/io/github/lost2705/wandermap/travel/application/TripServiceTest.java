@@ -65,10 +65,8 @@ class TripServiceTest {
     void setUp() {
         tripService = new TripService(
                 tripRepository,
-                countryRepository,
-                cityRepository,
                 tripStopRepository,
-                cityLocationResolver,
+                new CityResolutionService(countryRepository, cityRepository, cityLocationResolver),
                 photoFileLifecycle);
     }
 

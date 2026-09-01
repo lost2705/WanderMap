@@ -1,7 +1,9 @@
 package io.github.lost2705.wandermap.travel.api;
 
 import io.github.lost2705.wandermap.travel.application.CountryNotFoundException;
+import io.github.lost2705.wandermap.travel.application.BucketListItemNotFoundException;
 import io.github.lost2705.wandermap.travel.application.CityNotFoundException;
+import io.github.lost2705.wandermap.travel.application.DuplicateBucketListCityException;
 import io.github.lost2705.wandermap.travel.application.GeocodingUnavailableException;
 import io.github.lost2705.wandermap.travel.application.TripNotFoundException;
 import io.github.lost2705.wandermap.travel.application.PhotoStorageException;
@@ -36,6 +38,24 @@ public class TravelExceptionHandler {
     @ExceptionHandler(TripStopNotFoundException.class)
     ProblemDetail handleTripStopNotFound(TripStopNotFoundException exception) {
         return problem(HttpStatus.NOT_FOUND, "Trip stop not found", exception.getMessage(), "TRIP_STOP_NOT_FOUND");
+    }
+
+    @ExceptionHandler(BucketListItemNotFoundException.class)
+    ProblemDetail handleBucketListItemNotFound(BucketListItemNotFoundException exception) {
+        return problem(
+                HttpStatus.NOT_FOUND,
+                "Bucket list item not found",
+                exception.getMessage(),
+                "BUCKET_LIST_ITEM_NOT_FOUND");
+    }
+
+    @ExceptionHandler(DuplicateBucketListCityException.class)
+    ProblemDetail handleDuplicateBucketListCity(DuplicateBucketListCityException exception) {
+        return problem(
+                HttpStatus.CONFLICT,
+                "Place already saved",
+                exception.getMessage(),
+                "BUCKET_LIST_DUPLICATE");
     }
 
     @ExceptionHandler(CityNotFoundException.class)

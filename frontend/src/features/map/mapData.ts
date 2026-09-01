@@ -1,4 +1,5 @@
 import type {
+  BucketListItem,
   Country,
   Trip,
   TripMapMarker,
@@ -97,6 +98,27 @@ export interface WorldPlaceFeature {
     countryCode: string
     countryName: string
     visitCount: number
+  }
+  geometry: {
+    type: 'Point'
+    coordinates: MapCoordinate
+  }
+}
+
+export interface BucketListFeatureCollection {
+  type: 'FeatureCollection'
+  features: BucketListFeature[]
+}
+
+export interface BucketListFeature {
+  type: 'Feature'
+  properties: {
+    itemId: string
+    cityId: string
+    cityName: string
+    countryCode: string
+    countryName: string
+    visited: boolean
   }
   geometry: {
     type: 'Point'
@@ -241,6 +263,43 @@ export function worldPlaceFeatureCollection(overview: TripMapOverview | null): W
         coordinates: place.coordinate,
       },
     })),
+  }
+}
+
+export function bucketListFeatureCollection(items: BucketListItem[]): BucketListFeatureCollection {
+  const cityIds = new Set<string>()
+  return {
+    type: 'FeatureCollection',
+    features: items.flatMap((item): BucketListFeature[] => {
+      const { city } = item
+      if (cityIds.has(city.id)
+          || city.latitude === null
+          || city.longitude === null
+          || !Number.isFinite(city.latitude)
+          || !Number.isFinite(city.longitude)
+          || city.latitude < -90
+          || city.latitude > 90
+          || city.longitude < -180
+          || city.longitude > 180) {
+        return []
+      }
+      cityIds.add(city.id)
+      return [{
+        type: 'Feature',
+        properties: {
+          itemId: item.id,
+          cityId: city.id,
+          cityName: city.name,
+          countryCode: city.country.code,
+          countryName: city.country.name,
+          visited: item.visited,
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: toMapCoordinate(city.latitude, city.longitude),
+        },
+      }]
+    }),
   }
 }
 

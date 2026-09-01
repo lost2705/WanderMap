@@ -24,6 +24,15 @@ describe('World travel-data palette', () => {
     expect(contrast(worldPlaces.clusterText, worldPlaces.cluster)).toBeGreaterThanOrEqual(4.5)
   })
 
+  it.each(['terracotta', 'sage', 'ocean', 'lavender', 'burgundy', 'midnight'])('%s exposes a distinct bucket-list palette', (theme) => {
+    applyTestTheme(theme)
+    const { bucketPlaces, worldPlaces } = mapThemeColors()
+    expect(bucketPlaces.ring).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(bucketPlaces.halo).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(bucketPlaces.fill).toMatch(/^#[0-9a-f]{6}$/i)
+    expect(bucketPlaces.ring).not.toBe(worldPlaces.areaCore)
+  })
+
   it.each(['ocean', 'midnight'])('%s separates travel cores from both land and water', (theme) => {
     applyTestTheme(theme)
     const { worldPlaces, basemap } = mapThemeColors()
