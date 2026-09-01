@@ -49,6 +49,15 @@ describe('BucketListSection', () => {
     expect(screen.queryByText('Save places that are still calling you.')).toBeNull()
   })
 
+  it('shows loading failure locally without presenting the normal empty state', () => {
+    renderSection({ loadError: 'Want to visit is temporarily unavailable.' })
+
+    expect(screen.getByRole('status').textContent).toBe('Want to visit is temporarily unavailable.')
+    expect(screen.queryByText('Save places that are still calling you.')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add a place to Want to visit' })).toBeTruthy()
+  })
+
   it('searches, saves a canonical result, and focuses the newly saved place', async () => {
     const search = vi.fn<SearchCitiesFunction>().mockResolvedValue([kyotoResult])
     const onAdd = vi.fn().mockResolvedValue(kyotoItem)

@@ -392,7 +392,8 @@ textarea:focus-visible {
   color: var(--color-accent-strong);
 }
 
-.bucket-list-empty {
+.bucket-list-empty,
+.bucket-list-load-error {
   margin: 0.5rem 0 0;
   color: var(--color-text-secondary);
   font-family: var(--font-editorial);

@@ -8,6 +8,7 @@ import type { SearchCitiesFunction } from './CitySearch'
 interface BucketListSectionProps {
   items: BucketListItem[]
   isMutating: boolean
+  loadError?: string | null
   citySearch?: SearchCitiesFunction
   onAdd: (city: CitySearchResult) => Promise<BucketListItem>
   onSelectPlace: (cityId: string) => void
@@ -16,6 +17,7 @@ interface BucketListSectionProps {
 export function BucketListSection({
   items,
   isMutating,
+  loadError = null,
   citySearch,
   onAdd,
   onSelectPlace,
@@ -106,7 +108,10 @@ export function BucketListSection({
       </div>
       {isExpanded ? (
         <div id={regionId}>
-          {items.length === 0 && !isAdding ? (
+          {loadError ? (
+            <p className="bucket-list-load-error" role="status">{loadError}</p>
+          ) : null}
+          {items.length === 0 && !isAdding && !loadError ? (
             <p className="bucket-list-empty">Save places that are still calling you.</p>
           ) : null}
           {items.length > 0 ? (

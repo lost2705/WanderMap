@@ -222,6 +222,19 @@ const travelProfile: TravelProfile = {
   revisitedCountryCount: 0,
 }
 
+const optionalKyotoItem: BucketListItem = {
+  id: 'bucket-kyoto-optional',
+  city: {
+    id: 'city-kyoto-optional',
+    name: 'Kyoto',
+    latitude: 35.0116,
+    longitude: 135.7681,
+    country: { code: 'JP', name: 'Japan' },
+  },
+  createdAt: '2026-09-01T12:00:00Z',
+  visited: false,
+}
+
 const romePlace: PlaceDetails = {
   city: italyTrip.stops[0]!.city,
   visitCount: 1,
@@ -298,6 +311,74 @@ afterEach(() => {
   vi.unstubAllGlobals()
   window.localStorage.clear()
   delete document.documentElement.dataset.theme
+})
+
+describe('App initial loading resilience', () => {
+  it('keeps core and Bucket List available when Travel Profile fails', async () => {
+    vi.mocked(getTravelProfile).mockRejectedValue(new Error('Profile unavailable.'))
+    vi.mocked(listBucketListItems).mockResolvedValue([optionalKyotoItem])
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+
+    expect(await screen.findByRole('button', { name: /KyotoJapanWant to visit/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' })).toBeTruthy()
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expectMapState('global', 'IT,JP', 'italy,japan')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('keeps core, Travel Profile, and visited places available when Bucket List fails', async () => {
+    vi.mocked(listBucketListItems).mockRejectedValue(new Error('Bucket List unavailable.'))
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+
+    expect(await screen.findByText('Want to visit is temporarily unavailable.')).toBeTruthy()
+    expect(screen.getByLabelText('World travel statistics').textContent)
+      .toBe('Countries2Places2Journeys2Travel days0Memories1')
+    const visitedPlaces = screen.getByRole('button', { name: 'Visited places — 2 places' })
+    fireEvent.click(visitedPlaces)
+    expect(screen.getByRole('button', { name: 'Open Rome, Italy — 1 visit' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expectMapState('global', 'IT,JP', 'italy,japan')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('keeps the core World experience available when both optional APIs fail', async () => {
+    vi.mocked(getTravelProfile).mockRejectedValue(new Error('Profile unavailable.'))
+    vi.mocked(listBucketListItems).mockRejectedValue(new Error('Bucket List unavailable.'))
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const mapSurface = screen.getByTestId('map-state')
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+
+    expect(await screen.findByText('Want to visit is temporarily unavailable.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Japan 2026, 1 place' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Visited places — 2 places' })).toBeTruthy()
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expectMapState('global', 'IT,JP', 'italy,japan')
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+  })
+
+  it('still treats a core API rejection as a fatal application loading error', async () => {
+    vi.mocked(listTrips).mockRejectedValue(new Error('Trips unavailable.'))
+
+    render(<App />)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Trips unavailable.')
+    expect(screen.queryByRole('button', { name: 'Italy, 1 place' })).toBeNull()
+    expect(screen.queryByLabelText('World travel statistics')).toBeNull()
+    expectMapState('global', '', '')
+  })
 })
 
 describe('App trip selection', () => {

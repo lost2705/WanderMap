@@ -61,6 +61,7 @@ const DRAWER_FOCUSABLE_SELECTOR = [
   'textarea:not([disabled])',
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
+const BUCKET_LIST_UNAVAILABLE_MESSAGE = 'Want to visit is temporarily unavailable.'
 
 type AtlasView =
   | { kind: 'map' }
@@ -79,6 +80,7 @@ export default function App({ initialTheme }: AppProps) {
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
   const [travelProfile, setTravelProfile] = useState<TravelProfile | null>(null)
   const [bucketListItems, setBucketListItems] = useState<BucketListItem[]>([])
+  const [bucketListLoadError, setBucketListLoadError] = useState<string | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
   const [atlasView, setAtlasView] = useState<AtlasView>({ kind: 'map' })
@@ -96,6 +98,7 @@ export default function App({ initialTheme }: AppProps) {
   const navigationToggleRef = useRef<HTMLButtonElement>(null)
   const navigationCloseRef = useRef<HTMLButtonElement>(null)
   const placeDetailsCloseRef = useRef<HTMLButtonElement>(null)
+  const applicationLoadVersionRef = useRef(0)
   const placeNavigationTriggerRef = useRef<HTMLElement | null>(null)
   const focusOpenedPlaceRef = useRef(false)
   const contentAreaRef = useRef<HTMLDivElement>(null)
@@ -335,26 +338,53 @@ export default function App({ initialTheme }: AppProps) {
   }
 
   async function loadApplication(preferredTripId?: string) {
+    const loadVersion = applicationLoadVersionRef.current + 1
+    applicationLoadVersionRef.current = loadVersion
     setIsLoading(true)
+    setBucketListLoadError(null)
+    const optionalWorldData = Promise.allSettled([
+      getTravelProfile(),
+      listBucketListItems(),
+    ] as const)
     try {
-      const [nextTrips, nextOverview, nextTravelProfile, nextBucketListItems] = await Promise.all([
+      const [nextTrips, nextOverview] = await Promise.all([
         listTrips(),
         getMapOverview(),
-        getTravelProfile(),
-        listBucketListItems(),
       ])
+      if (applicationLoadVersionRef.current !== loadVersion) {
+        return
+      }
       setTrips(nextTrips)
       setOverview(nextOverview)
-      setTravelProfile(nextTravelProfile)
-      setBucketListItems(nextBucketListItems)
+      setTravelProfile(null)
+      setBucketListItems([])
       setSelectedTripId((current) => {
         const candidate = preferredTripId ?? current
         return candidate && nextTrips.some((trip) => trip.id === candidate) ? candidate : (nextTrips[0]?.id ?? null)
       })
+      void optionalWorldData.then(([profileResult, bucketListResult]) => {
+        if (applicationLoadVersionRef.current !== loadVersion) {
+          return
+        }
+        setTravelProfile(profileResult.status === 'fulfilled' ? profileResult.value : null)
+        if (bucketListResult.status === 'fulfilled') {
+          setBucketListItems(bucketListResult.value)
+          setBucketListLoadError(null)
+        } else {
+          setBucketListItems([])
+          setBucketListLoadError(BUCKET_LIST_UNAVAILABLE_MESSAGE)
+        }
+      })
     } catch (reason) {
-      setError(toErrorMessage(reason))
+      if (applicationLoadVersionRef.current === loadVersion) {
+        setTravelProfile(null)
+        setBucketListItems([])
+        setError(toErrorMessage(reason))
+      }
     } finally {
-      setIsLoading(false)
+      if (applicationLoadVersionRef.current === loadVersion) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -452,6 +482,7 @@ export default function App({ initialTheme }: AppProps) {
         longitude: city.longitude,
       })
       setBucketListItems((current) => [...current, created].sort(compareBucketListItems))
+      setBucketListLoadError(null)
       return created
     } finally {
       setIsBucketListMutating(false)
@@ -463,6 +494,7 @@ export default function App({ initialTheme }: AppProps) {
     try {
       await deleteBucketListItem(itemId)
       setBucketListItems((current) => current.filter((item) => item.id !== itemId))
+      setBucketListLoadError(null)
     } finally {
       setIsBucketListMutating(false)
     }
@@ -730,6 +762,7 @@ export default function App({ initialTheme }: AppProps) {
             <BucketListSection
               isMutating={isBucketListMutating}
               items={bucketListItems}
+              loadError={bucketListLoadError}
               onAdd={handleAddBucketListItem}
               onSelectPlace={handleOpenPlaceFromNavigation}
             />
