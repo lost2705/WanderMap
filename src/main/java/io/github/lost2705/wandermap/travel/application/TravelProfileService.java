@@ -1,5 +1,6 @@
 package io.github.lost2705.wandermap.travel.application;
 
+import io.github.lost2705.wandermap.identity.application.CurrentUserProvider;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
@@ -24,19 +25,23 @@ public class TravelProfileService {
     private final TripRepository tripRepository;
     private final TripStopRepository tripStopRepository;
     private final TripStopPhotoRepository photoRepository;
+    private final CurrentUserProvider currentUserProvider;
 
     public TravelProfileService(
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
-            TripStopPhotoRepository photoRepository) {
+            TripStopPhotoRepository photoRepository,
+            CurrentUserProvider currentUserProvider) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.photoRepository = photoRepository;
+        this.currentUserProvider = currentUserProvider;
     }
 
     @Transactional(readOnly = true)
     public TravelProfile getProfile() {
-        List<Trip> trips = tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc();
+        UUID userId = currentUserProvider.getCurrentUser().getId();
+        List<Trip> trips = tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(userId);
         Map<UUID, Long> visitsByCity = new HashMap<>();
         Set<String> visitedCountries = new HashSet<>();
         Map<String, Set<UUID>> journeysByCountry = new HashMap<>();
@@ -64,8 +69,8 @@ public class TravelProfileService {
                 visitsByCity.size(),
                 visitedCountries.size(),
                 countDistinctTravelDays(trips),
-                tripStopRepository.countStopsWithMemoryContent(),
-                photoRepository.count(),
+                tripStopRepository.countStopsWithMemoryContentForUser(userId),
+                photoRepository.countByTripStop_Trip_User_Id(userId),
                 revisitedCityCount,
                 revisitedCountryCount);
     }

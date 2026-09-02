@@ -3,11 +3,13 @@ package io.github.lost2705.wandermap;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+@ActiveProfiles("local")
 abstract class PostgresIntegrationTestSupport {
 
     private static final DockerImageName POSTGIS_IMAGE =

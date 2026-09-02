@@ -1,5 +1,6 @@
 package io.github.lost2705.wandermap.travel.application;
 
+import io.github.lost2705.wandermap.identity.application.CurrentUserProvider;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
@@ -25,20 +26,30 @@ public class PlaceDetailsService {
 
     private final CityRepository cityRepository;
     private final TripStopRepository tripStopRepository;
+    private final CurrentUserProvider currentUserProvider;
 
-    public PlaceDetailsService(CityRepository cityRepository, TripStopRepository tripStopRepository) {
+    public PlaceDetailsService(
+            CityRepository cityRepository,
+            TripStopRepository tripStopRepository,
+            CurrentUserProvider currentUserProvider) {
         this.cityRepository = cityRepository;
         this.tripStopRepository = tripStopRepository;
+        this.currentUserProvider = currentUserProvider;
     }
 
     @Transactional(readOnly = true)
     public PlaceDetails getPlace(UUID cityId) {
         Objects.requireNonNull(cityId, "city id must not be null");
-        var city = cityRepository.findByIdWithCountry(cityId)
-                .orElseThrow(() -> new CityNotFoundException(cityId));
-        var visits = tripStopRepository.findAllByCityIdWithTripAndPhotos(cityId).stream()
+        var visits = tripStopRepository
+                .findAllByCityIdWithTripAndPhotosForUser(cityId, currentUserProvider.getCurrentUser().getId())
+                .stream()
                 .sorted(VISIT_ORDER)
                 .toList();
+        if (visits.isEmpty()) {
+            throw new CityNotFoundException(cityId);
+        }
+        var city = cityRepository.findByIdWithCountry(cityId)
+                .orElseThrow(() -> new CityNotFoundException(cityId));
         return new PlaceDetails(city, visits);
     }
 

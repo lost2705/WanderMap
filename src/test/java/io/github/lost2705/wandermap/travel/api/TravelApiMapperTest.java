@@ -2,6 +2,8 @@ package io.github.lost2705.wandermap.travel.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.api.dto.TripMapOverviewResponse;
 import io.github.lost2705.wandermap.travel.api.dto.PlaceDetailsResponse;
 import io.github.lost2705.wandermap.travel.api.dto.TripStopResponse;
@@ -20,10 +22,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 class TravelApiMapperTest {
 
+    private static final UserAccount USER = TestUsers.user();
+
     @Test
     void exposesLocatedStopsAsMarkersAndKeepsUnresolvedStopsValid() {
         Country italy = new Country("IT", "Italy");
-        Trip trip = new Trip("Tuscany", null, null);
+        Trip trip = new Trip(USER, "Tuscany", null, null);
         City lucca = new City(
                 italy,
                 "Lucca",
@@ -51,8 +55,8 @@ class TravelApiMapperTest {
                 italy,
                 "Rome",
                 new CityLocation(new BigDecimal("41.9028"), new BigDecimal("12.4964")));
-        Trip firstTrip = new Trip("Italy 2026", null, null);
-        Trip secondTrip = new Trip("Europe 2027", null, null);
+        Trip firstTrip = new Trip(USER, "Italy 2026", null, null);
+        Trip secondTrip = new Trip(USER, "Europe 2027", null, null);
         firstTrip.addStop(rome);
         secondTrip.addStop(rome);
 
@@ -75,7 +79,7 @@ class TravelApiMapperTest {
                 italy,
                 "Rome",
                 new CityLocation(new BigDecimal("41.9028"), new BigDecimal("12.4964")));
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Italy 2026",
                 java.time.LocalDate.of(2026, 5, 1),
                 java.time.LocalDate.of(2026, 5, 12),
@@ -115,7 +119,7 @@ class TravelApiMapperTest {
 
     @Test
     void mapsTripStopPhotosByPositionRegardlessOfEntityCollectionOrder() {
-        Trip trip = new Trip("Italy photos", null, null);
+        Trip trip = new Trip(USER, "Italy photos", null, null);
         TripStop stop = trip.addStop(new City(new Country("IT", "Italy"), "Rome"));
         List<TripStopPhoto> orderedPhotos = addPhotosAndReorderCollection(stop);
 

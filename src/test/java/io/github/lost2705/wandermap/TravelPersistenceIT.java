@@ -3,6 +3,8 @@ package io.github.lost2705.wandermap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
+import io.github.lost2705.wandermap.identity.persistence.UserAccountRepository;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.BucketListItem;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
@@ -20,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -51,6 +54,16 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Autowired
     private EntityManager entityManager;
 
+    @Autowired
+    private UserAccountRepository userRepository;
+
+    private UserAccount currentUser;
+
+    @BeforeEach
+    void createUser() {
+        currentUser = userRepository.saveAndFlush(TestUsers.user());
+    }
+
     @Test
     void flywayCreatesTravelCoreSchemaAndSeedsCountries() {
         Integer travelTableCount = jdbcTemplate.queryForObject(
@@ -58,11 +71,11 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 SELECT COUNT(*)
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
-                  AND table_name IN ('countries', 'cities', 'trips', 'trip_stops', 'trip_stop_photos', 'bucket_list_items')
+                  AND table_name IN ('users', 'countries', 'cities', 'trips', 'trip_stops', 'trip_stop_photos', 'bucket_list_items')
                 """,
                 Integer.class);
 
-        assertThat(travelTableCount).isEqualTo(6);
+        assertThat(travelTableCount).isEqualTo(7);
         assertThat(countryRepository.findById("IT"))
                 .isPresent()
                 .get()
@@ -70,31 +83,34 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
                 .isEqualTo("Italy");
 
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '9' AND success = TRUE",
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '10' AND success = TRUE",
                 Integer.class)).isEqualTo(1);
     }
 
     @Test
     void persistsOneBucketListItemPerCanonicalCityWithoutOwningTheCity() {
         City city = persistCity("Bucket city " + UUID.randomUUID());
-        BucketListItem item = bucketListItemRepository.saveAndFlush(new BucketListItem(city));
+        BucketListItem item = bucketListItemRepository.saveAndFlush(new BucketListItem(currentUser, city));
         entityManager.clear();
 
-        assertThat(bucketListItemRepository.findAllWithCityAndCountry())
+        assertThat(bucketListItemRepository.findAllWithCityAndCountryForUser(currentUser.getId()))
                 .anySatisfy(reloaded -> {
                     assertThat(reloaded.getId()).isEqualTo(item.getId());
                     assertThat(reloaded.getCity().getId()).isEqualTo(city.getId());
                     assertThat(reloaded.getCreatedAt()).isNotNull();
                 });
 
-        assertThatThrownBy(() -> bucketListItemRepository.saveAndFlush(new BucketListItem(city)))
+        UserAccount secondUser = userRepository.saveAndFlush(TestUsers.user());
+        assertThat(bucketListItemRepository.saveAndFlush(new BucketListItem(secondUser, city))).isNotNull();
+
+        assertThatThrownBy(() -> bucketListItemRepository.saveAndFlush(new BucketListItem(currentUser, city)))
                 .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
-                .hasMessageContaining("uq_bucket_list_items_city");
+                .hasMessageContaining("uq_bucket_list_items_user_city");
     }
 
     @Test
     void persistsTripWithNullableDates() {
-        Trip trip = tripRepository.saveAndFlush(new Trip("Italy 2026", null, null));
+        Trip trip = tripRepository.saveAndFlush(new Trip(currentUser, "Italy 2026", null, null));
         entityManager.clear();
 
         Trip reloadedTrip = tripRepository.findById(trip.getId()).orElseThrow();
@@ -107,7 +123,11 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void migrationKeepsPreJournalStyleRowsValidWithNullableFields() {
         UUID tripId = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO trips (id, name) VALUES (?, ?)", tripId, "Legacy trip");
+        jdbcTemplate.update(
+                "INSERT INTO trips (id, user_id, name) VALUES (?, ?, ?)",
+                tripId,
+                currentUser.getId(),
+                "Legacy trip");
 
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT description IS NULL FROM trips WHERE id = ?", Boolean.class, tripId)).isTrue();
@@ -129,7 +149,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         LocalDate startDate = LocalDate.of(2026, 5, 10);
         LocalDate endDate = LocalDate.of(2026, 5, 21);
 
-        Trip trip = tripRepository.saveAndFlush(new Trip("Italy in May", startDate, endDate));
+        Trip trip = tripRepository.saveAndFlush(new Trip(currentUser, "Italy in May", startDate, endDate));
         entityManager.clear();
 
         Trip reloadedTrip = tripRepository.findById(trip.getId()).orElseThrow();
@@ -140,7 +160,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void persistsTripAndStopJournalFields() {
         City tokyo = persistCity("Tokyo journal " + UUID.randomUUID());
-        Trip trip = new Trip(
+        Trip trip = new Trip(currentUser,
                 "Japan journal",
                 LocalDate.of(2026, 4, 1),
                 LocalDate.of(2026, 4, 12),
@@ -154,7 +174,9 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         tripRepository.saveAndFlush(trip);
         entityManager.clear();
 
-        Trip reloadedTrip = tripRepository.findByIdWithStops(trip.getId()).orElseThrow();
+        Trip reloadedTrip = tripRepository
+                .findByIdWithStopsForUser(trip.getId(), currentUser.getId())
+                .orElseThrow();
         TripStop reloadedStop = reloadedTrip.getStops().getFirst();
         assertThat(reloadedTrip.getDescription()).isEqualTo("Cherry blossom season");
         assertThat(reloadedStop.getId()).isEqualTo(stopId);
@@ -166,7 +188,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void persistsAndReloadsOrderedPhotoMetadataWithoutBinaryData() {
         City rome = persistCity("Rome photos " + UUID.randomUUID());
-        Trip trip = new Trip("Italy photo persistence", null, null);
+        Trip trip = new Trip(currentUser, "Italy photo persistence", null, null);
         TripStop stop = trip.addStop(rome);
         TripStopPhoto first = stop.addPhoto("ab/first-" + UUID.randomUUID(), "first.jpg", "image/jpeg", 101);
         TripStopPhoto second = stop.addPhoto("cd/second-" + UUID.randomUUID(), "second.png", "image/png", 202);
@@ -175,7 +197,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         tripRepository.saveAndFlush(trip);
         entityManager.clear();
 
-        Trip reloaded = tripRepository.findByIdWithStops(tripId).orElseThrow();
+        Trip reloaded = tripRepository.findByIdWithStopsForUser(tripId, currentUser.getId()).orElseThrow();
         assertThat(reloaded.getStops().getFirst().getPhotos())
                 .extracting(TripStopPhoto::getId)
                 .containsExactly(first.getId(), second.getId());
@@ -190,9 +212,9 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
 
     @Test
     void countsEachStopWithANoteOrPhotosAsOneMemory() {
-        long initialMemoryCount = tripStopRepository.countStopsWithMemoryContent();
+        long initialMemoryCount = tripStopRepository.countStopsWithMemoryContentForUser(currentUser.getId());
         City city = persistCity("Memory count city " + UUID.randomUUID());
-        Trip trip = new Trip("Memory count journey", null, null);
+        Trip trip = new Trip(currentUser, "Memory count journey", null, null);
         trip.addStop(
                 city,
                 LocalDate.of(2026, 4, 1),
@@ -205,7 +227,8 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
 
         tripRepository.saveAndFlush(trip);
 
-        assertThat(tripStopRepository.countStopsWithMemoryContent()).isEqualTo(initialMemoryCount + 3);
+        assertThat(tripStopRepository.countStopsWithMemoryContentForUser(currentUser.getId()))
+                .isEqualTo(initialMemoryCount + 3);
     }
 
     @Test
@@ -296,7 +319,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void rejectsDuplicateTripStopPositionsWithinTrip() {
         City city = persistCity("Rome " + UUID.randomUUID());
-        Trip trip = tripRepository.saveAndFlush(new Trip("Italy itinerary", null, null));
+        Trip trip = tripRepository.saveAndFlush(new Trip(currentUser, "Italy itinerary", null, null));
 
         jdbcTemplate.update(
                 "INSERT INTO trip_stops (id, trip_id, city_id, position) VALUES (?, ?, ?, ?)",
@@ -313,7 +336,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
     @Test
     void permitsDuplicateCitiesAtDifferentTripStopPositions() {
         City city = persistCity("Florence " + UUID.randomUUID());
-        Trip trip = new Trip("Repeated Florence", null, null);
+        Trip trip = new Trip(currentUser, "Repeated Florence", null, null);
 
         trip.addStop(city);
         trip.addStop(city);
@@ -332,7 +355,7 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
         City florence = persistCity("Florence " + UUID.randomUUID());
         City bologna = persistCity("Bologna " + UUID.randomUUID());
         City venice = persistCity("Venice " + UUID.randomUUID());
-        Trip trip = new Trip("Italy itinerary", null, null);
+        Trip trip = new Trip(currentUser, "Italy itinerary", null, null);
         trip.addStop(rome);
         trip.addStop(florence);
         trip.addStop(bologna);

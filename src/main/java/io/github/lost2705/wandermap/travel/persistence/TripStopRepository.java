@@ -13,14 +13,15 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
             SELECT COUNT(DISTINCT stop.id)
             FROM TripStop stop
             LEFT JOIN stop.photos photo
-            WHERE stop.note IS NOT NULL OR photo.id IS NOT NULL
+            WHERE stop.trip.user.id = :userId
+              AND (stop.note IS NOT NULL OR photo.id IS NOT NULL)
             """)
-    long countStopsWithMemoryContent();
+    long countStopsWithMemoryContentForUser(@Param("userId") UUID userId);
 
-    @Query("SELECT DISTINCT stop.city.id FROM TripStop stop")
-    List<UUID> findVisitedCityIds();
+    @Query("SELECT DISTINCT stop.city.id FROM TripStop stop WHERE stop.trip.user.id = :userId")
+    List<UUID> findVisitedCityIdsForUser(@Param("userId") UUID userId);
 
-    boolean existsByCity_Id(UUID cityId);
+    boolean existsByCity_IdAndTrip_User_Id(UUID cityId, UUID userId);
 
     @Query("""
             SELECT DISTINCT stop
@@ -29,7 +30,8 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
             JOIN FETCH stop.city city
             JOIN FETCH city.country
             LEFT JOIN FETCH stop.photos
-            WHERE city.id = :cityId
+            WHERE city.id = :cityId AND stop.trip.user.id = :userId
             """)
-    List<TripStop> findAllByCityIdWithTripAndPhotos(@Param("cityId") UUID cityId);
+    List<TripStop> findAllByCityIdWithTripAndPhotosForUser(
+            @Param("cityId") UUID cityId, @Param("userId") UUID userId);
 }

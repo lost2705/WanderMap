@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
 import io.github.lost2705.wandermap.travel.domain.Country;
@@ -40,6 +42,7 @@ class TripServiceTest {
 
     private static final Country ITALY = new Country("IT", "Italy");
     private static final Country UNITED_STATES = new Country("US", "United States");
+    private static final UserAccount USER = TestUsers.user();
 
     @Mock
     private TripRepository tripRepository;
@@ -67,7 +70,8 @@ class TripServiceTest {
                 tripRepository,
                 tripStopRepository,
                 new CityResolutionService(countryRepository, cityRepository, cityLocationResolver),
-                photoFileLifecycle);
+                photoFileLifecycle,
+                () -> USER);
     }
 
     @Test
@@ -90,7 +94,7 @@ class TripServiceTest {
     @Test
     void getsExistingTripWithStops() {
         Trip trip = tripWithStops("Rome");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         assertThat(tripService.getTrip(trip.getId())).isSameAs(trip);
     }
@@ -98,7 +102,7 @@ class TripServiceTest {
     @Test
     void rejectsUnknownTrip() {
         UUID tripId = UUID.randomUUID();
-        when(tripRepository.findByIdWithStops(tripId)).thenReturn(Optional.empty());
+        when(tripRepository.findByIdWithStopsForUser(tripId, USER.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> tripService.getTrip(tripId))
                 .isInstanceOf(TripNotFoundException.class)
@@ -107,18 +111,18 @@ class TripServiceTest {
 
     @Test
     void listsTripsByRepositoryDeterministicOrder() {
-        Trip alps = new Trip("Alps", null, null);
-        Trip italy = new Trip("Italy", null, null);
-        when(tripRepository.findAllWithStopsOrderByNameAscIdAsc()).thenReturn(List.of(alps, italy));
+        Trip alps = new Trip(USER, "Alps", null, null);
+        Trip italy = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findAllWithStopsOrderByNameAscIdAscForUser(USER.getId())).thenReturn(List.of(alps, italy));
 
         assertThat(tripService.listTrips()).containsExactly(alps, italy);
     }
 
     @Test
     void buildsMapOverviewWithTheAggregateMemoryCountWithoutReadingPhotoStorage() {
-        Trip italy = new Trip("Italy", null, null);
-        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc()).thenReturn(List.of(italy));
-        when(tripStopRepository.countStopsWithMemoryContent()).thenReturn(3L);
+        Trip italy = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(USER.getId())).thenReturn(List.of(italy));
+        when(tripStopRepository.countStopsWithMemoryContentForUser(USER.getId())).thenReturn(3L);
 
         TripMapOverview overview = tripService.getMapOverview();
 
@@ -129,8 +133,8 @@ class TripServiceTest {
 
     @Test
     void exposesZeroMemoriesForAnEmptyOverview() {
-        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc()).thenReturn(List.of());
-        when(tripStopRepository.countStopsWithMemoryContent()).thenReturn(0L);
+        when(tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(USER.getId())).thenReturn(List.of());
+        when(tripStopRepository.countStopsWithMemoryContentForUser(USER.getId())).thenReturn(0L);
 
         TripMapOverview overview = tripService.getMapOverview();
 
@@ -140,8 +144,8 @@ class TripServiceTest {
 
     @Test
     void updatesTripNameAndDates() {
-        Trip trip = new Trip("Italy", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(tripRepository.save(trip)).thenReturn(trip);
 
         Trip updatedTrip = tripService.updateTrip(
@@ -160,8 +164,8 @@ class TripServiceTest {
 
     @Test
     void rejectsInvalidDateUpdateWithoutPersistingIt() {
-        Trip trip = new Trip("Italy", LocalDate.of(2026, 5, 10), LocalDate.of(2026, 5, 21));
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", LocalDate.of(2026, 5, 10), LocalDate.of(2026, 5, 21));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         assertThatIllegalArgumentException().isThrownBy(() -> tripService.updateTrip(
                 trip.getId(), "Italy in June", LocalDate.of(2026, 6, 21), LocalDate.of(2026, 6, 10)));
@@ -174,8 +178,8 @@ class TripServiceTest {
 
     @Test
     void deletesExistingTrip() {
-        Trip trip = new Trip("Italy", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         tripService.deleteTrip(trip.getId());
 
@@ -185,7 +189,7 @@ class TripServiceTest {
     @Test
     void rejectsDeletingUnknownTrip() {
         UUID tripId = UUID.randomUUID();
-        when(tripRepository.findByIdWithStops(tripId)).thenReturn(Optional.empty());
+        when(tripRepository.findByIdWithStopsForUser(tripId, USER.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> tripService.deleteTrip(tripId)).isInstanceOf(TripNotFoundException.class);
         verify(tripRepository, never()).delete(any(Trip.class));
@@ -193,9 +197,9 @@ class TripServiceTest {
 
     @Test
     void addsStopWithExistingCity() {
-        Trip trip = new Trip("Italy", null, null);
+        Trip trip = new Trip(USER, "Italy", null, null);
         City rome = new City(ITALY, "Rome");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity("IT", "rome", null, null)).thenReturn(Optional.of(rome));
         when(tripRepository.save(trip)).thenReturn(trip);
@@ -210,8 +214,8 @@ class TripServiceTest {
 
     @Test
     void addsStopByCreatingMissingCity() {
-        Trip trip = new Trip("Italy", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity("IT", "florence", null, null)).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -228,9 +232,9 @@ class TripServiceTest {
 
     @Test
     void appliesAnOptionalLocationWhenCreatingAMissingCity() {
-        Trip trip = new Trip("Italy", null, null);
+        Trip trip = new Trip(USER, "Italy", null, null);
         CityLocation location = new CityLocation(new BigDecimal("43.7696"), new BigDecimal("11.2558"));
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityLocationResolver.resolve("IT", "florence")).thenReturn(Optional.of(location));
         when(cityRepository.findByIdentity("IT", "florence", location.latitude(), location.longitude()))
@@ -248,8 +252,8 @@ class TripServiceTest {
 
     @Test
     void persistsCoordinatesSuppliedByASelectedCityWithoutResolvingAgain() {
-        Trip trip = new Trip("Tuscany", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Tuscany", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity(
                         "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
@@ -272,9 +276,9 @@ class TripServiceTest {
 
     @Test
     void keepsSameNameSelectedCitiesAtDifferentCoordinatesDistinctAndReusesExactSelections() {
-        Trip trip = new Trip("Two Florences", null, null);
+        Trip trip = new Trip(USER, "Two Florences", null, null);
         Map<String, City> storedCities = new HashMap<>();
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("US")).thenReturn(Optional.of(UNITED_STATES));
         when(cityRepository.findByIdentity(
                         eq("US"), eq("florence"), nullable(BigDecimal.class), nullable(BigDecimal.class)))
@@ -315,11 +319,11 @@ class TripServiceTest {
 
     @Test
     void enrichesAnExistingUnlocatedCityWithSelectedCoordinates() {
-        Trip trip = new Trip("Tuscany", null, null);
+        Trip trip = new Trip(USER, "Tuscany", null, null);
         City lucca = new City(ITALY, "Lucca");
         BigDecimal latitude = new BigDecimal("43.8429");
         BigDecimal longitude = new BigDecimal("10.5027");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity(
                         "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
@@ -337,13 +341,13 @@ class TripServiceTest {
 
     @Test
     void coordinateLessRequestReusesAnExistingCityAtTheResolvedLegacyLocation() {
-        Trip trip = new Trip("Italy", null, null);
+        Trip trip = new Trip(USER, "Italy", null, null);
         CityLocation location = new CityLocation(new BigDecimal("41.9028"), new BigDecimal("12.4964"));
         City rome = new City(
                 ITALY,
                 "Rome",
                 location);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityLocationResolver.resolve("IT", "rome")).thenReturn(Optional.of(location));
         when(cityRepository.findByIdentity("IT", "rome", location.latitude(), location.longitude()))
@@ -358,8 +362,8 @@ class TripServiceTest {
 
     @Test
     void keepsCreatingAStopWhenLocationResolutionFails() {
-        Trip trip = new Trip("Italy", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityLocationResolver.resolve("IT", "unknown place")).thenThrow(new IllegalStateException("unavailable"));
         when(cityRepository.findByIdentity("IT", "unknown place", null, null)).thenReturn(Optional.empty());
@@ -374,8 +378,8 @@ class TripServiceTest {
 
     @Test
     void rejectsUnknownCountry() {
-        Trip trip = new Trip("Italy", null, null);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        Trip trip = new Trip(USER, "Italy", null, null);
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("FR")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> tripService.addStop(trip.getId(), "FR", "Paris"))
@@ -387,9 +391,9 @@ class TripServiceTest {
 
     @Test
     void reusesCityForDuplicateNormalizedNameResolution() {
-        Trip trip = new Trip("Italy", null, null);
+        Trip trip = new Trip(USER, "Italy", null, null);
         City rome = new City(ITALY, "Rome");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity("IT", "rome", null, null)).thenReturn(Optional.of(rome));
         when(tripRepository.save(trip)).thenReturn(trip);
@@ -405,7 +409,7 @@ class TripServiceTest {
     void movesStopThroughAggregate() {
         Trip trip = tripWithStops("Rome", "Florence", "Bologna", "Venice");
         UUID veniceStopId = trip.getStops().get(3).getId();
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(tripRepository.save(trip)).thenReturn(trip);
 
         tripService.moveStop(trip.getId(), veniceStopId, 2);
@@ -419,7 +423,7 @@ class TripServiceTest {
     void removesStopThroughAggregate() {
         Trip trip = tripWithStops("Rome", "Florence", "Bologna");
         UUID florenceStopId = trip.getStops().get(1).getId();
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(tripRepository.saveAndFlush(trip)).thenReturn(trip);
 
         tripService.removeStop(trip.getId(), florenceStopId);
@@ -431,7 +435,7 @@ class TripServiceTest {
     @Test
     void exposesExplicitUnknownStopSemantics() {
         Trip trip = tripWithStops("Rome");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         assertThatThrownBy(() -> tripService.moveStop(trip.getId(), UUID.randomUUID(), 1))
                 .isInstanceOf(TripStopNotFoundException.class);
@@ -439,7 +443,7 @@ class TripServiceTest {
     }
 
     private static Trip tripWithStops(String... cityNames) {
-        Trip trip = new Trip("Italy", null, null);
+        Trip trip = new Trip(USER, "Italy", null, null);
         for (String cityName : cityNames) {
             trip.addStop(new City(ITALY, cityName));
         }
@@ -448,10 +452,10 @@ class TripServiceTest {
 
     @Test
     void addsAndUpdatesStopJournalThroughAggregate() {
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Japan", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
         City tokyo = new City(ITALY, "Tokyo");
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(countryRepository.findById("IT")).thenReturn(Optional.of(ITALY));
         when(cityRepository.findByIdentity("IT", "tokyo", null, null)).thenReturn(Optional.of(tokyo));
         when(tripRepository.save(trip)).thenReturn(trip);
@@ -485,7 +489,7 @@ class TripServiceTest {
     void rejectsInvalidStopJournalWithoutSaving() {
         Trip trip = tripWithStops("Tokyo");
         UUID stopId = trip.getStops().getFirst().getId();
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         assertThatIllegalArgumentException().isThrownBy(() -> tripService.updateStopJournal(
                         trip.getId(),

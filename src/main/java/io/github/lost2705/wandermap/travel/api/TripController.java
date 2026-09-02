@@ -19,7 +19,6 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
@@ -157,7 +156,7 @@ public class TripController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(photo.contentType()))
                 .contentLength(content.length)
-                .cacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePrivate())
+                .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
                         .filename(photo.originalFilename(), StandardCharsets.UTF_8)
                         .build()

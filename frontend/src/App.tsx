@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ApiError } from './api/client'
+import { getCurrentUser, login, logout, register } from './api/auth'
+import type { CurrentUser, LoginInput, RegistrationInput } from './api/auth'
+import {
+  ApiError,
+  getClientSessionGeneration,
+  resetClientSession,
+  setUnauthorizedHandler,
+} from './api/client'
 import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
@@ -20,6 +27,7 @@ import {
   uploadStopPhoto,
 } from './api/trips'
 import { AppearanceControl } from './components/AppearanceControl'
+import { AuthScreen } from './components/AuthScreen'
 import { BucketListSection } from './components/BucketListSection'
 import { Itinerary } from './components/Itinerary'
 import { MemoryView } from './components/MemoryView'
@@ -52,6 +60,12 @@ interface AppProps {
   initialTheme?: Theme
 }
 
+interface AuthenticatedAppProps extends AppProps {
+  currentUser?: CurrentUser
+  logoutError?: string | null
+  onLogout?: () => Promise<void>
+}
+
 const MOBILE_NAVIGATION_QUERY = '(max-width: 820px)'
 const DRAWER_FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -62,6 +76,7 @@ const DRAWER_FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 const BUCKET_LIST_UNAVAILABLE_MESSAGE = 'Want to visit is temporarily unavailable.'
+const LOGOUT_FAILED_MESSAGE = 'Sign out failed. Please try again.'
 
 type AtlasView =
   | { kind: 'map' }
@@ -75,6 +90,105 @@ type AtlasView =
     }
 
 export default function App({ initialTheme }: AppProps) {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setUnauthorizedHandler((requestGeneration) => {
+      if (!cancelled && requestGeneration === getClientSessionGeneration()) {
+        resetClientSession()
+        setLogoutError(null)
+        setCurrentUser(null)
+        setIsCheckingSession(false)
+      }
+    })
+    getCurrentUser()
+      .then((user) => {
+        if (!cancelled) {
+          setCurrentUser(user)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCurrentUser(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsCheckingSession(false)
+        }
+      })
+    return () => {
+      cancelled = true
+      setUnauthorizedHandler(null)
+    }
+  }, [])
+
+  async function handleLogin(input: LoginInput): Promise<CurrentUser> {
+    const user = await login(input)
+    resetClientSession()
+    setLogoutError(null)
+    setCurrentUser(user)
+    return user
+  }
+
+  async function handleRegister(input: RegistrationInput): Promise<CurrentUser> {
+    const user = await register(input)
+    resetClientSession()
+    setLogoutError(null)
+    setCurrentUser(user)
+    return user
+  }
+
+  async function handleLogout(): Promise<void> {
+    setLogoutError(null)
+    try {
+      await logout()
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        resetClientSession()
+        setCurrentUser(null)
+        return
+      }
+      setLogoutError(LOGOUT_FAILED_MESSAGE)
+      return
+    }
+    resetClientSession()
+    setCurrentUser(null)
+  }
+
+  if (isCheckingSession) {
+    return (
+      <main className="auth-shell auth-checking" aria-live="polite">
+        <div className="auth-brand" role="status" aria-label="Restoring your WanderMap session">
+          <span aria-hidden="true" className="brand-mark">W</span>
+          <span className="brand-copy">
+            <strong>WanderMap</strong>
+            <small>Opening your atlas…</small>
+          </span>
+        </div>
+      </main>
+    )
+  }
+
+  if (!currentUser) {
+    return <AuthScreen onLogin={handleLogin} onRegister={handleRegister} />
+  }
+
+  return (
+    <AuthenticatedApp
+      key={currentUser.id}
+      currentUser={currentUser}
+      initialTheme={initialTheme}
+      logoutError={logoutError}
+      onLogout={handleLogout}
+    />
+  )
+}
+
+export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLogout }: AuthenticatedAppProps) {
   const [theme, setTheme] = useState<Theme>(() => initialTheme ?? initializeTheme())
   const [trips, setTrips] = useState<TripSummary[]>([])
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
@@ -831,6 +945,18 @@ export default function App({ initialTheme }: AppProps) {
           </>
         ) : null}
         <AppearanceControl theme={theme} onChange={handleThemeChange} />
+        {currentUser && onLogout ? (
+          <div className="account-control">
+            <span>
+              <strong>{currentUser.displayName}</strong>
+              <small>{currentUser.email}</small>
+            </span>
+            <button className="button button-quiet" type="button" onClick={() => void onLogout()}>
+              Sign out
+            </button>
+            {logoutError ? <p className="account-control-error" role="alert">{logoutError}</p> : null}
+          </div>
+        ) : null}
       </aside>
       <div className={`content-area${showWorldTravelStats ? ' has-world-stats' : ''}`} ref={contentAreaRef}>
         {atlasView.kind !== 'memory' ? (
