@@ -34,6 +34,7 @@ import { MemoryView } from './components/MemoryView'
 import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
+import { TravelProfileView } from './components/TravelProfileView'
 import { WorldPlaceNavigation } from './components/WorldPlaceNavigation'
 import { WorldTravelStatsBar } from './components/WorldTravelStatsBar'
 import { orderedMemoryPhotos, visitForTripStop } from './components/memoryPresentation'
@@ -77,6 +78,7 @@ const DRAWER_FOCUSABLE_SELECTOR = [
 ].join(',')
 const BUCKET_LIST_UNAVAILABLE_MESSAGE = 'Want to visit is temporarily unavailable.'
 const LOGOUT_FAILED_MESSAGE = 'Sign out failed. Please try again.'
+const TRAVEL_PROFILE_UNAVAILABLE_MESSAGE = 'Travel profile is temporarily unavailable.'
 
 type AtlasView =
   | { kind: 'map' }
@@ -193,6 +195,8 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   const [trips, setTrips] = useState<TripSummary[]>([])
   const [overview, setOverview] = useState<TripMapOverview | null>(null)
   const [travelProfile, setTravelProfile] = useState<TravelProfile | null>(null)
+  const [travelProfileLoadError, setTravelProfileLoadError] = useState<string | null>(null)
+  const [isTravelProfileLoading, setIsTravelProfileLoading] = useState(true)
   const [bucketListItems, setBucketListItems] = useState<BucketListItem[]>([])
   const [bucketListLoadError, setBucketListLoadError] = useState<string | null>(null)
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
@@ -209,9 +213,12 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   const [formMode, setFormMode] = useState<TripFormMode>(null)
   const [error, setError] = useState<string | null>(null)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
   const navigationToggleRef = useRef<HTMLButtonElement>(null)
   const navigationCloseRef = useRef<HTMLButtonElement>(null)
   const placeDetailsCloseRef = useRef<HTMLButtonElement>(null)
+  const profileTriggerRef = useRef<HTMLButtonElement>(null)
+  const profileBackRef = useRef<HTMLButtonElement>(null)
   const applicationLoadVersionRef = useRef(0)
   const placeNavigationTriggerRef = useRef<HTMLElement | null>(null)
   const focusOpenedPlaceRef = useRef(false)
@@ -246,6 +253,12 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   useEffect(() => {
     void loadApplication()
   }, [])
+
+  useEffect(() => {
+    if (isProfileOpen) {
+      profileBackRef.current?.focus()
+    }
+  }, [isProfileOpen])
 
   useEffect(() => {
     if (!isNavigationOpen) {
@@ -456,6 +469,8 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
     applicationLoadVersionRef.current = loadVersion
     let coreSucceeded = false
     setIsLoading(true)
+    setIsTravelProfileLoading(true)
+    setTravelProfileLoadError(null)
     setBucketListLoadError(null)
     const optionalWorldData = Promise.allSettled([
       getTravelProfile(),
@@ -467,7 +482,14 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
       if (!coreSucceeded || applicationLoadVersionRef.current !== loadVersion) {
         return
       }
-      setTravelProfile(profileResult.status === 'fulfilled' ? profileResult.value : null)
+      if (profileResult.status === 'fulfilled') {
+        setTravelProfile(profileResult.value)
+        setTravelProfileLoadError(null)
+      } else {
+        setTravelProfile(null)
+        setTravelProfileLoadError(TRAVEL_PROFILE_UNAVAILABLE_MESSAGE)
+      }
+      setIsTravelProfileLoading(false)
       if (bucketListResult.status === 'fulfilled') {
         setBucketListItems(bucketListResult.value)
         setBucketListLoadError(null)
@@ -505,12 +527,17 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
       coreSucceeded = false
       if (applicationLoadVersionRef.current === loadVersion) {
         setTravelProfile(null)
+        setTravelProfileLoadError(null)
+        setIsTravelProfileLoading(false)
         setBucketListItems([])
         setError(toErrorMessage(reason))
       }
     } finally {
       if (applicationLoadVersionRef.current === loadVersion) {
         setIsLoading(false)
+        if (!coreSucceeded) {
+          setIsTravelProfileLoading(false)
+        }
       }
     }
   }
@@ -830,11 +857,32 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   }
 
   async function refreshTravelProfile() {
+    setIsTravelProfileLoading(true)
+    setTravelProfileLoadError(null)
     try {
       setTravelProfile(await getTravelProfile())
-    } catch (reason) {
-      setError(toErrorMessage(reason))
+    } catch {
+      setTravelProfile(null)
+      setTravelProfileLoadError(TRAVEL_PROFILE_UNAVAILABLE_MESSAGE)
+    } finally {
+      setIsTravelProfileLoading(false)
     }
+  }
+
+  function handleOpenProfile() {
+    setIsNavigationOpen(false)
+    setIsProfileOpen(true)
+  }
+
+  function handleCloseProfile() {
+    setIsProfileOpen(false)
+    window.requestAnimationFrame(() => {
+      if (window.matchMedia?.(MOBILE_NAVIGATION_QUERY).matches) {
+        navigationToggleRef.current?.focus()
+      } else {
+        profileTriggerRef.current?.focus()
+      }
+    })
   }
 
   function handleThemeChange(nextTheme: Theme) {
@@ -854,6 +902,7 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
         aria-label="Journey navigation"
         className={`sidebar${isNavigationOpen ? ' is-open' : ''}`}
         id="journey-navigation"
+        inert={isProfileOpen}
       >
         <div className="sidebar-brand-row">
           <a className="brand" href="/" aria-label="WanderMap home">
@@ -947,18 +996,32 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
         <AppearanceControl theme={theme} onChange={handleThemeChange} />
         {currentUser && onLogout ? (
           <div className="account-control">
-            <span>
+            <span className="account-identity">
               <strong>{currentUser.displayName}</strong>
               <small>{currentUser.email}</small>
             </span>
-            <button className="button button-quiet" type="button" onClick={() => void onLogout()}>
-              Sign out
-            </button>
+            <span className="account-actions">
+              <button
+                className="button button-quiet"
+                ref={profileTriggerRef}
+                type="button"
+                onClick={handleOpenProfile}
+              >
+                View profile
+              </button>
+              <button className="button button-quiet" type="button" onClick={() => void onLogout()}>
+                Sign out
+              </button>
+            </span>
             {logoutError ? <p className="account-control-error" role="alert">{logoutError}</p> : null}
           </div>
         ) : null}
       </aside>
-      <div className={`content-area${showWorldTravelStats ? ' has-world-stats' : ''}`} ref={contentAreaRef}>
+      <div
+        className={`content-area${showWorldTravelStats ? ' has-world-stats' : ''}`}
+        inert={isProfileOpen}
+        ref={contentAreaRef}
+      >
         {atlasView.kind !== 'memory' ? (
           <div className="mobile-map-controls" aria-label="Map navigation">
             <button
@@ -1037,6 +1100,17 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
           />
         ) : null}
       </div>
+      {isProfileOpen && currentUser ? (
+        <TravelProfileView
+          backButtonRef={profileBackRef}
+          error={travelProfileLoadError}
+          isLoading={isTravelProfileLoading}
+          profile={travelProfile}
+          user={currentUser}
+          onBack={handleCloseProfile}
+          onRetry={() => void refreshTravelProfile()}
+        />
+      ) : null}
     </main>
   )
 }

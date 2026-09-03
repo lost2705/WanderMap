@@ -16,6 +16,7 @@ import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.BucketListItemRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
+import io.github.lost2705.wandermap.travel.persistence.TripMemoryCount;
 import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -229,6 +230,8 @@ class TravelPersistenceIT extends PostgresIntegrationTestSupport {
 
         assertThat(tripStopRepository.countStopsWithMemoryContentForUser(currentUser.getId()))
                 .isEqualTo(initialMemoryCount + 3);
+        assertThat(tripStopRepository.countMemoryStopsByTripForUser(currentUser.getId()))
+                .containsExactly(new TripMemoryCount(trip.getId(), 3));
     }
 
     @Test

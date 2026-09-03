@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from './api/client'
 import type { CurrentUser } from './api/auth'
-import type { TripMapOverview, TripSummary } from './types/travel'
+import type { TravelProfile, TripMapOverview, TripSummary } from './types/travel'
 
 const clientState = vi.hoisted(() => ({
   generation: 0,
@@ -88,6 +88,28 @@ const bobTrips: TripSummary[] = [{
   stopCount: 0,
 }]
 
+function profileFor(countryCount: number): TravelProfile {
+  return {
+    journeyCount: countryCount,
+    visitCount: countryCount,
+    uniqueCityCount: countryCount,
+    countryCount,
+    travelDayCount: countryCount,
+    memoryCount: 0,
+    photoCount: 0,
+    revisitedCityCount: 0,
+    revisitedCountryCount: 0,
+    highlights: {
+      mostVisitedCity: null,
+      mostVisitedCountry: null,
+      longestJourney: null,
+      mostRecentJourney: null,
+      mostMemoryRichJourney: null,
+    },
+    achievements: [],
+  }
+}
+
 beforeEach(() => {
   vi.mocked(getCurrentUser).mockRejectedValue(new ApiError(401, 'AUTH_REQUIRED'))
   vi.mocked(listTrips).mockResolvedValue([])
@@ -113,6 +135,7 @@ describe('App authentication boundary', () => {
     expect(screen.getByRole('status', { name: 'Restoring your WanderMap session' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Welcome back' })).toBeNull()
     expect(listTrips).not.toHaveBeenCalled()
+    expect(getTravelProfile).not.toHaveBeenCalled()
   })
 
   it('shows sign in when no session can be restored', async () => {
@@ -121,6 +144,7 @@ describe('App authentication boundary', () => {
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeTruthy()
     expect(screen.queryByTestId('authenticated-map')).toBeNull()
     expect(listTrips).not.toHaveBeenCalled()
+    expect(getTravelProfile).not.toHaveBeenCalled()
   })
 
   it('restores an authenticated session before loading personal data', async () => {
@@ -206,6 +230,37 @@ describe('App authentication boundary', () => {
     expect(await screen.findByRole('button', { name: 'Bob in Tokyo, 0 places' })).toBeTruthy()
     expect(screen.getByText('Bob')).toBeTruthy()
     expect(screen.queryByText('Alice in Rome')).toBeNull()
+  })
+
+  it('does not leak Alice profile data into Bob after an authenticated user switch', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(alice)
+    vi.mocked(getTravelProfile)
+      .mockResolvedValueOnce(profileFor(2))
+      .mockResolvedValueOnce(profileFor(7))
+    vi.mocked(login).mockResolvedValue(bob)
+    render(<App />)
+    await screen.findByTestId('authenticated-map')
+    await waitFor(() => expect(getTravelProfile).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+    let profileView = screen.getByRole('region', { name: 'Travel Profile' })
+    expect(profileView.querySelector('.profile-hero-metrics')?.textContent).toContain('Countries2')
+    expect(profileView.textContent).toContain('alice@example.com')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to map' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByTestId('authenticated-map')
+    await waitFor(() => expect(getTravelProfile).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+
+    profileView = screen.getByRole('region', { name: 'Travel Profile' })
+    expect(profileView.querySelector('.profile-hero-metrics')?.textContent).toContain('Countries7')
+    expect(profileView.textContent).toContain('bob@example.com')
+    expect(profileView.textContent).not.toContain('alice@example.com')
   })
 
   it.each([

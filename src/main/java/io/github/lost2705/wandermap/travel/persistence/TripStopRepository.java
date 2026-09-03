@@ -18,6 +18,17 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
             """)
     long countStopsWithMemoryContentForUser(@Param("userId") UUID userId);
 
+    @Query("""
+            SELECT new io.github.lost2705.wandermap.travel.persistence.TripMemoryCount(
+                stop.trip.id, COUNT(DISTINCT stop.id))
+            FROM TripStop stop
+            LEFT JOIN stop.photos photo
+            WHERE stop.trip.user.id = :userId
+              AND (stop.note IS NOT NULL OR photo.id IS NOT NULL)
+            GROUP BY stop.trip.id
+            """)
+    List<TripMemoryCount> countMemoryStopsByTripForUser(@Param("userId") UUID userId);
+
     @Query("SELECT DISTINCT stop.city.id FROM TripStop stop WHERE stop.trip.user.id = :userId")
     List<UUID> findVisitedCityIdsForUser(@Param("userId") UUID userId);
 
