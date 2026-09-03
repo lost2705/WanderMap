@@ -112,7 +112,7 @@ import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './
 import { searchCities } from './api/cities'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
-import App from './App'
+import { AuthenticatedApp as App } from './App'
 
 const tripSummaries: TripSummary[] = [
   {

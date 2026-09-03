@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
@@ -23,6 +25,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class PlaceDetailsServiceTest {
 
+    private static final UserAccount USER = TestUsers.user();
+
     @Mock
     private CityRepository cityRepository;
 
@@ -33,25 +37,25 @@ class PlaceDetailsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PlaceDetailsService(cityRepository, tripStopRepository);
+        service = new PlaceDetailsService(cityRepository, tripStopRepository, () -> USER);
     }
 
     @Test
     void returnsEveryStopForTheCityInChronologicalOrderWithoutCollapsingRepeatedVisits() {
         City florence = new City(new Country("US", "United States"), "Florence");
-        Trip legacyTrip = new Trip("Legacy journey", null, null);
+        Trip legacyTrip = new Trip(USER, "Legacy journey", null, null);
         TripStop legacyVisit = legacyTrip.addStop(florence);
-        Trip springTrip = new Trip(
+        Trip springTrip = new Trip(USER,
                 "Spring journey", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 10));
         TripStop laterSpringVisit = springTrip.addStop(
                 florence, LocalDate.of(2026, 5, 6), LocalDate.of(2026, 5, 7), "Second Florence stop");
         TripStop earlierSpringVisit = springTrip.addStop(
                 florence, LocalDate.of(2026, 5, 3), LocalDate.of(2026, 5, 4), "First Florence stop");
-        Trip winterTrip = new Trip(
+        Trip winterTrip = new Trip(USER,
                 "Winter journey", LocalDate.of(2025, 12, 1), LocalDate.of(2025, 12, 8));
         TripStop winterVisit = winterTrip.addStop(florence);
         when(cityRepository.findByIdWithCountry(florence.getId())).thenReturn(Optional.of(florence));
-        when(tripStopRepository.findAllByCityIdWithTripAndPhotos(florence.getId()))
+        when(tripStopRepository.findAllByCityIdWithTripAndPhotosForUser(florence.getId(), USER.getId()))
                 .thenReturn(List.of(legacyVisit, laterSpringVisit, winterVisit, earlierSpringVisit));
 
         PlaceDetails details = service.getPlace(florence.getId());
@@ -63,9 +67,10 @@ class PlaceDetailsServiceTest {
     }
 
     @Test
-    void rejectsANonexistentCityBeforeLookingUpVisits() {
+    void rejectsAPlaceWithoutVisitsForTheCurrentUserBeforeExposingCanonicalMetadata() {
         UUID cityId = UUID.randomUUID();
-        when(cityRepository.findByIdWithCountry(cityId)).thenReturn(Optional.empty());
+        when(tripStopRepository.findAllByCityIdWithTripAndPhotosForUser(cityId, USER.getId()))
+                .thenReturn(List.of());
 
         assertThatThrownBy(() -> service.getPlace(cityId))
                 .isInstanceOf(CityNotFoundException.class)

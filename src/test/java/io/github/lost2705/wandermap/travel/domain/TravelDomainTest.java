@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import java.time.LocalDate;
 import java.math.BigDecimal;
 import java.util.List;
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.Test;
 class TravelDomainTest {
 
     private static final Country ITALY = new Country("IT", "Italy");
+    private static final UserAccount USER = TestUsers.user();
 
     @Test
     void normalizesCityNamesByTrimmingCollapsingWhitespaceAndLowercasing() {
@@ -59,13 +62,13 @@ class TravelDomainTest {
     @Test
     void rejectsInvalidTripDateRangeBeforePersistence() {
         assertThatIllegalArgumentException().isThrownBy(() ->
-                new Trip("Invalid dates", LocalDate.of(2026, 6, 2), LocalDate.of(2026, 6, 1)))
+                new Trip(USER, "Invalid dates", LocalDate.of(2026, 6, 2), LocalDate.of(2026, 6, 1)))
                 .withMessage("start date must not be after end date");
     }
 
     @Test
     void storesTripDescriptionAndStopJournalDetails() {
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Japan 2026",
                 LocalDate.of(2026, 4, 1),
                 LocalDate.of(2026, 4, 12),
@@ -85,7 +88,7 @@ class TravelDomainTest {
 
     @Test
     void keepsAllJournalFieldsOptionalAndNormalizesBlankTextToNull() {
-        Trip trip = new Trip("Japan 2026", null, null, "   ");
+        Trip trip = new Trip(USER, "Japan 2026", null, null, "   ");
 
         TripStop stop = trip.addStop(city("Tokyo"), null, null, "\n  ");
 
@@ -97,7 +100,7 @@ class TravelDomainTest {
 
     @Test
     void rejectsStopArrivalAfterDeparture() {
-        Trip trip = new Trip("Japan 2026", null, null);
+        Trip trip = new Trip(USER, "Japan 2026", null, null);
 
         assertThatIllegalArgumentException().isThrownBy(() -> trip.addStop(
                         city("Tokyo"), LocalDate.of(2026, 4, 5), LocalDate.of(2026, 4, 2), null))
@@ -107,7 +110,7 @@ class TravelDomainTest {
 
     @Test
     void rejectsStopDatesOutsideKnownTripBoundaries() {
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
 
         assertThatIllegalArgumentException().isThrownBy(() -> trip.addStop(
@@ -121,7 +124,7 @@ class TravelDomainTest {
 
     @Test
     void updatesStopJournalWithoutChangingItsCityOrPosition() {
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12));
         TripStop stop = trip.addStop(city("Tokyo"));
 
@@ -138,7 +141,7 @@ class TravelDomainTest {
 
     @Test
     void rejectsTripDateChangesThatWouldExcludeAnExistingStopWithoutMutatingTheTrip() {
-        Trip trip = new Trip(
+        Trip trip = new Trip(USER,
                 "Japan 2026", LocalDate.of(2026, 4, 1), LocalDate.of(2026, 4, 12), "Original");
         trip.addStop(
                 city("Tokyo"), LocalDate.of(2026, 4, 2), LocalDate.of(2026, 4, 5), null);
@@ -340,7 +343,7 @@ class TravelDomainTest {
     }
 
     private static Trip trip() {
-        return new Trip("Italy 2026", null, null);
+        return new Trip(USER, "Italy 2026", null, null);
     }
 
     private static Trip tripWithStops(String... cityNames) {

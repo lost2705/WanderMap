@@ -1,5 +1,7 @@
 package io.github.lost2705.wandermap.travel.application;
 
+import io.github.lost2705.wandermap.identity.application.CurrentUserProvider;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
@@ -19,16 +21,19 @@ public class TripService {
     private final TripStopRepository tripStopRepository;
     private final CityResolutionService cityResolutionService;
     private final PhotoFileLifecycle photoFileLifecycle;
+    private final CurrentUserProvider currentUserProvider;
 
     public TripService(
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
             CityResolutionService cityResolutionService,
-            PhotoFileLifecycle photoFileLifecycle) {
+            PhotoFileLifecycle photoFileLifecycle,
+            CurrentUserProvider currentUserProvider) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.cityResolutionService = cityResolutionService;
         this.photoFileLifecycle = photoFileLifecycle;
+        this.currentUserProvider = currentUserProvider;
     }
 
     @Transactional
@@ -38,7 +43,7 @@ public class TripService {
 
     @Transactional
     public Trip createTrip(String name, LocalDate startDate, LocalDate endDate, String description) {
-        return tripRepository.save(new Trip(name, startDate, endDate, description));
+        return tripRepository.save(new Trip(currentUser(), name, startDate, endDate, description));
     }
 
     @Transactional(readOnly = true)
@@ -48,14 +53,15 @@ public class TripService {
 
     @Transactional(readOnly = true)
     public List<Trip> listTrips() {
-        return tripRepository.findAllWithStopsOrderByNameAscIdAsc();
+        return tripRepository.findAllWithStopsOrderByNameAscIdAscForUser(currentUser().getId());
     }
 
     @Transactional(readOnly = true)
     public TripMapOverview getMapOverview() {
+        UUID userId = currentUser().getId();
         return new TripMapOverview(
-                tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAsc(),
-                tripStopRepository.countStopsWithMemoryContent());
+                tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(userId),
+                tripStopRepository.countStopsWithMemoryContentForUser(userId));
     }
 
     @Transactional
@@ -147,10 +153,14 @@ public class TripService {
 
     private Trip loadTripWithStops(UUID tripId) {
         Objects.requireNonNull(tripId, "trip id must not be null");
-        Trip trip = tripRepository.findByIdWithStops(tripId)
+        Trip trip = tripRepository.findByIdWithStopsForUser(tripId, currentUser().getId())
                 .orElseThrow(() -> new TripNotFoundException(tripId));
         trip.getStops().forEach(stop -> stop.getPhotos().size());
         return trip;
+    }
+
+    private UserAccount currentUser() {
+        return currentUserProvider.getCurrentUser();
     }
 
 }

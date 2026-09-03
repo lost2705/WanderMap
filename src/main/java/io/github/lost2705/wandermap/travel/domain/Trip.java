@@ -1,13 +1,18 @@
 package io.github.lost2705.wandermap.travel.domain;
 
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -25,6 +30,11 @@ public class Trip {
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false, updatable = false)
+    @NotNull
+    private UserAccount user;
 
     @Column(name = "name", nullable = false, length = 200)
     @NotBlank
@@ -47,17 +57,22 @@ public class Trip {
     protected Trip() {
     }
 
-    public Trip(String name, LocalDate startDate, LocalDate endDate) {
-        this(name, startDate, endDate, null);
+    public Trip(UserAccount user, String name, LocalDate startDate, LocalDate endDate) {
+        this(user, name, startDate, endDate, null);
     }
 
-    public Trip(String name, LocalDate startDate, LocalDate endDate, String description) {
+    public Trip(UserAccount user, String name, LocalDate startDate, LocalDate endDate, String description) {
         this.id = UUID.randomUUID();
+        this.user = Objects.requireNonNull(user, "user must not be null");
         updateDetails(name, startDate, endDate, description);
     }
 
     public UUID getId() {
         return id;
+    }
+
+    public UserAccount getUser() {
+        return user;
     }
 
     public String getName() {

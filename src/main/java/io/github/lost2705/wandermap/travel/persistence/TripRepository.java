@@ -18,16 +18,22 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
             LEFT JOIN FETCH trip.stops stop
             LEFT JOIN FETCH stop.city city
             LEFT JOIN FETCH city.country
-            WHERE trip.id = :tripId
+            WHERE trip.id = :tripId AND trip.user.id = :userId
             """)
-    Optional<Trip> findByIdWithStops(@Param("tripId") UUID tripId);
+    Optional<Trip> findByIdWithStopsForUser(@Param("tripId") UUID tripId, @Param("userId") UUID userId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT trip FROM Trip trip WHERE trip.id = :tripId")
-    Optional<Trip> findByIdForUpdate(@Param("tripId") UUID tripId);
+    @Query("SELECT trip FROM Trip trip WHERE trip.id = :tripId AND trip.user.id = :userId")
+    Optional<Trip> findByIdForUpdateForUser(@Param("tripId") UUID tripId, @Param("userId") UUID userId);
 
-    @Query("SELECT DISTINCT trip FROM Trip trip LEFT JOIN FETCH trip.stops ORDER BY trip.name ASC, trip.id ASC")
-    List<Trip> findAllWithStopsOrderByNameAscIdAsc();
+    @Query("""
+            SELECT DISTINCT trip
+            FROM Trip trip
+            LEFT JOIN FETCH trip.stops
+            WHERE trip.user.id = :userId
+            ORDER BY trip.name ASC, trip.id ASC
+            """)
+    List<Trip> findAllWithStopsOrderByNameAscIdAscForUser(@Param("userId") UUID userId);
 
     @Query("""
             SELECT DISTINCT trip
@@ -35,7 +41,8 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
             LEFT JOIN FETCH trip.stops stop
             LEFT JOIN FETCH stop.city city
             LEFT JOIN FETCH city.country
+            WHERE trip.user.id = :userId
             ORDER BY trip.name ASC, trip.id ASC
             """)
-    List<Trip> findAllWithStopsAndCitiesOrderByNameAscIdAsc();
+    List<Trip> findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(@Param("userId") UUID userId);
 }

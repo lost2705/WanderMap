@@ -1,5 +1,6 @@
 package io.github.lost2705.wandermap.travel.application;
 
+import io.github.lost2705.wandermap.identity.application.CurrentUserProvider;
 import io.github.lost2705.wandermap.travel.domain.Trip;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
@@ -17,16 +18,19 @@ public class TripStopPhotoService {
     private final TripStopPhotoRepository photoRepository;
     private final PhotoUploadValidator uploadValidator;
     private final PhotoFileLifecycle fileLifecycle;
+    private final CurrentUserProvider currentUserProvider;
 
     public TripStopPhotoService(
             TripRepository tripRepository,
             TripStopPhotoRepository photoRepository,
             PhotoUploadValidator uploadValidator,
-            PhotoFileLifecycle fileLifecycle) {
+            PhotoFileLifecycle fileLifecycle,
+            CurrentUserProvider currentUserProvider) {
         this.tripRepository = tripRepository;
         this.photoRepository = photoRepository;
         this.uploadValidator = uploadValidator;
         this.fileLifecycle = fileLifecycle;
+        this.currentUserProvider = currentUserProvider;
     }
 
     @Transactional
@@ -70,7 +74,7 @@ public class TripStopPhotoService {
     private TripStop loadStop(UUID tripId, UUID stopId) {
         Objects.requireNonNull(tripId, "trip id must not be null");
         Objects.requireNonNull(stopId, "stop id must not be null");
-        Trip trip = tripRepository.findByIdWithStops(tripId)
+        Trip trip = tripRepository.findByIdWithStopsForUser(tripId, currentUserProvider.getCurrentUser().getId())
                 .orElseThrow(() -> new TripNotFoundException(tripId));
         TripStop stop = trip.getStop(stopId);
         stop.getPhotos().size();
@@ -80,7 +84,7 @@ public class TripStopPhotoService {
     private TripStop loadStopForMutation(UUID tripId, UUID stopId) {
         Objects.requireNonNull(tripId, "trip id must not be null");
         Objects.requireNonNull(stopId, "stop id must not be null");
-        Trip trip = tripRepository.findByIdForUpdate(tripId)
+        Trip trip = tripRepository.findByIdForUpdateForUser(tripId, currentUserProvider.getCurrentUser().getId())
                 .orElseThrow(() -> new TripNotFoundException(tripId));
         TripStop stop = trip.getStop(stopId);
         stop.getPhotos().size();

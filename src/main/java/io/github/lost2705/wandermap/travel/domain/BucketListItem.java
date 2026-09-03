@@ -1,5 +1,6 @@
 package io.github.lost2705.wandermap.travel.domain;
 
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -17,12 +18,19 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "bucket_list_items",
-        uniqueConstraints = @UniqueConstraint(name = "uq_bucket_list_items_city", columnNames = "city_id"))
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_bucket_list_items_user_city",
+                columnNames = {"user_id", "city_id"}))
 public class BucketListItem {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false, updatable = false)
+    @NotNull
+    private UserAccount user;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "city_id", nullable = false, updatable = false)
@@ -36,14 +44,19 @@ public class BucketListItem {
     protected BucketListItem() {
     }
 
-    public BucketListItem(City city) {
+    public BucketListItem(UserAccount user, City city) {
         this.id = UUID.randomUUID();
+        this.user = Objects.requireNonNull(user, "user must not be null");
         this.city = Objects.requireNonNull(city, "city must not be null");
         this.createdAt = Instant.now();
     }
 
     public UUID getId() {
         return id;
+    }
+
+    public UserAccount getUser() {
+        return user;
     }
 
     public City getCity() {

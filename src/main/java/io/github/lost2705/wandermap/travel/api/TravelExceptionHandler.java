@@ -1,5 +1,8 @@
 package io.github.lost2705.wandermap.travel.api;
 
+import io.github.lost2705.wandermap.identity.application.CurrentUserUnavailableException;
+import io.github.lost2705.wandermap.identity.application.DuplicateEmailException;
+import io.github.lost2705.wandermap.identity.application.InvalidCredentialsException;
 import io.github.lost2705.wandermap.travel.application.CountryNotFoundException;
 import io.github.lost2705.wandermap.travel.application.BucketListItemNotFoundException;
 import io.github.lost2705.wandermap.travel.application.CityNotFoundException;
@@ -24,6 +27,21 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class TravelExceptionHandler {
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    ProblemDetail handleDuplicateEmail(DuplicateEmailException exception) {
+        return problem(HttpStatus.CONFLICT, "Email already registered", exception.getMessage(), "EMAIL_ALREADY_EXISTS");
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    ProblemDetail handleInvalidCredentials(InvalidCredentialsException exception) {
+        return problem(HttpStatus.UNAUTHORIZED, "Invalid credentials", exception.getMessage(), "INVALID_CREDENTIALS");
+    }
+
+    @ExceptionHandler(CurrentUserUnavailableException.class)
+    ProblemDetail handleCurrentUserUnavailable(CurrentUserUnavailableException exception) {
+        return problem(HttpStatus.UNAUTHORIZED, "Authentication required", exception.getMessage(), "AUTH_REQUIRED");
+    }
 
     @ExceptionHandler(TripNotFoundException.class)
     ProblemDetail handleTripNotFound(TripNotFoundException exception) {

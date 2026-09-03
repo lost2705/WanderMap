@@ -13,6 +13,8 @@ WanderMap is a visual travel journal for collecting trips and seeing their itine
 - review historical travel highlights in a compact World map stats bar backed by an identity-safe personal travel profile;
 - save canonical cities to a separate Want to visit list and open them through the existing Place Details flow;
 - preserve all travel data in PostgreSQL across browser refreshes;
+- create an account, sign in, restore the session after refresh, and sign out;
+- keep each user's journeys, memories, photos, map, profile, and Want to visit list private;
 - highlight persisted ISO country codes on a world map;
 - show and focus city markers when stored coordinates are available.
 
@@ -36,10 +38,10 @@ On PowerShell, use `Copy-Item .env.example .env`.
 Start the backend in one terminal:
 
 ```bash
-./mvnw spring-boot:run
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 ```
 
-On PowerShell, use `./mvnw.cmd spring-boot:run`.
+On PowerShell, set `$env:SPRING_PROFILES_ACTIVE = 'local'` and then run `.\mvnw.cmd spring-boot:run`.
 
 Then start the frontend in another terminal:
 
@@ -53,7 +55,11 @@ Open the Vite URL printed in the terminal (normally `http://localhost:5173`). It
 
 To point the backend at another database, set `WANDERMAP_DB_URL`, `WANDERMAP_DB_USERNAME`, and `WANDERMAP_DB_PASSWORD`.
 
-Photo binaries use a provider-neutral `PhotoStorage` boundary. Local development stores generated keys beneath `WANDERMAP_PHOTOS_ROOT` (default `./data/photos`); PostgreSQL stores metadata only. `WANDERMAP_PHOTOS_MAX_SIZE` configures both the application and multipart limit and defaults to `10MB`. Original filenames are display metadata and are never used as storage paths.
+Authentication uses a short-lived signed JWT in the HttpOnly `WANDERMAP_SESSION` cookie. The explicit `local` Spring profile permits a fresh random signing key when `WANDERMAP_JWT_SECRET` is omitted and sets the cookie's `Secure` flag to `false` for localhost HTTP; local sessions therefore intentionally stop working after a backend restart. In the default/non-local configuration, startup fails unless `WANDERMAP_JWT_SECRET` is valid Base64 containing at least 32 decoded random bytes, and session cookies are `Secure` by default. Production deployments require HTTPS and must provide the signing secret outside the repository; `WANDERMAP_AUTH_COOKIE_SECURE` may be configured explicitly but should remain `true`. `WANDERMAP_AUTH_TOKEN_TTL` controls the token lifetime and defaults to `12h`. Registration rejects passwords exceeding BCrypt's 72 UTF-8 byte limit instead of silently truncating them.
+
+The SPA and API are same-origin through the Vite proxy in development. The session cookie is `HttpOnly`, `SameSite=Strict`, scoped to `/api`, and never exposed to JavaScript. Spring Security CSRF protection issues a separate readable `XSRF-TOKEN` cookie; the centralized frontend client sends its value as `X-XSRF-TOKEN` for unsafe requests. No access token or password is stored in `localStorage`.
+
+Photo binaries use a provider-neutral `PhotoStorage` boundary. Local development stores generated keys beneath `WANDERMAP_PHOTOS_ROOT` (default `./data/photos`); PostgreSQL stores metadata only. Authenticated photo-content responses use `Cache-Control: no-store` so private bytes are not retained across user sessions. `WANDERMAP_PHOTOS_MAX_SIZE` configures both the application and multipart limit and defaults to `10MB`. Original filenames are display metadata and are never used as storage paths.
 
 City search uses the configurable `WANDERMAP_GEOCODING_BASE_URL` (default `https://photon.komoot.io`), identifies itself with `WANDERMAP_GEOCODING_USER_AGENT`, and uses connection/read timeouts configurable with `WANDERMAP_GEOCODING_CONNECT_TIMEOUT_MILLIS` and `WANDERMAP_GEOCODING_READ_TIMEOUT_MILLIS`.
 
@@ -77,7 +83,15 @@ Country geometry is a deliberate trade-off. Natural Earth's 1:10m countries impr
 
 ## API quick start
 
-The existing Travel Core endpoints remain stable:
+Create or restore a session through the frontend for normal use. The compact auth API is:
+
+- `POST /api/auth/register` — create an account and session (`201`);
+- `POST /api/auth/login` — create a session (`200`);
+- `POST /api/auth/logout` — expire the session cookie (`204`);
+- `GET /api/me` — return the authenticated user;
+- `GET /api/auth/csrf` — initialize the SPA CSRF cookie/token.
+
+All personal APIs, including Trips, Stops, photos, Map Overview, Travel Profile, Place Details, Bucket List, city search, and countries, require authentication. `/api/health` and the auth bootstrap endpoints remain public. Unsafe requests also require the `X-XSRF-TOKEN` cookie value in the `X-XSRF-TOKEN` header. A command-line client should first call `/api/auth/csrf` with a cookie jar, then preserve that jar for registration/login and subsequent requests. The existing Travel Core endpoint paths and payloads remain stable; ownership is never accepted from the client:
 
 ```bash
 curl 'http://localhost:8080/api/cities/search?q=Flo'
@@ -111,13 +125,23 @@ curl -X POST http://localhost:8080/api/bucket-list \
 curl -X DELETE http://localhost:8080/api/bucket-list/{bucketListItemId}
 ```
 
+Unauthenticated access returns `401` with `code = AUTH_REQUIRED`. A resource UUID owned by another user behaves as not found rather than disclosing that the resource exists. Invalid credentials return `401`, duplicate normalized email registration returns `409`, and normal validation remains `400`.
+
 `GET /api/cities/search` returns only normalized application fields: `name`, `countryName`, optional `regionName`, `countryCode`, `latitude`, and `longitude`. The region label distinguishes same-name cities within one country but is not required for persistence. The stop endpoint keeps latitude/longitude optional for backward compatibility but requires both when either is supplied. `GET /api/trips/map-overview` remains the compact read model for visited country codes and located stop markers; each marker includes its stable `cityId` so clients can group repeated visits without relying on names or coordinates.
 
 `GET /api/travel-profile` is the single-user domain summary used in World. Places and city revisits use stable `cityId`; a country is revisited only when it occurs in more than one distinct Journey. Travel days are distinct inclusive calendar dates across Journey date ranges, so overlapping trips do not double-count days. An incomplete Journey contributes its one explicitly known date, while a Journey without dates contributes none. Memories remain TripStops with a note and/or photo.
 
 The map is the hero in World View: the profile is presented as a compact floating bar over the lower map rather than a permanent sidebar dashboard or large introductory card. Desktop and tablet show Countries, Places, Journeys, Travel days, and Memories; small screens retain the headline Countries, Places, and Travel days. The bar is hidden for an empty profile and outside the World map. Visits, Photos, and revisit counts remain in the backend read model for a future expanded profile, and Bucket List changes never affect any historical profile metric.
 
-Bucket List persistence is intentionally separate from travel history. Each Bucket List item references one canonical `City`, and a database uniqueness constraint permits only one item per `cityId`; display names are never used as identity. A city may be visited-only, bucket-only, or both. Adding a TripStop never auto-removes its Bucket List item, and removing a Bucket List item never deletes its City or TripStops. `GET /api/bucket-list` derives `visited` from TripStops in the backend without per-item queries. Bucket-only changes do not contribute to Personal Travel Profile counts. Phase 1 deliberately has no note/PATCH field and no automatic first-stop handoff into New Journey; a future planning bridge should prefill the existing city-selection input and keep Journey creation/add-stop failure semantics explicit.
+Bucket List persistence is intentionally separate from travel history. Each Bucket List item references one shared canonical `City`, and a database uniqueness constraint permits one item per `(userId, cityId)`; different users can save the same City while display names are never used as identity. A city may be visited-only, bucket-only, or both. Adding a TripStop never auto-removes its Bucket List item, and removing a Bucket List item never deletes its City or TripStops. `GET /api/bucket-list` derives `visited` from the current user's TripStops without per-item queries. Bucket-only changes do not contribute to Personal Travel Profile counts. Phase 1 deliberately has no note/PATCH field and no automatic first-stop handoff into New Journey; a future planning bridge should prefill the existing city-selection input and keep Journey creation/add-stop failure semantics explicit.
+
+## Identity and ownership
+
+`UserAccount` is the authentication identity and stores a normalized unique email, BCrypt password hash, display name, and creation time. `Trip` is the user-owned travel aggregate root. TripStops, journal memories, and photo metadata inherit ownership through their parent Trip; they do not duplicate `user_id`. `BucketListItem` is owned directly by a user. Country and City remain shared canonical reference data, so two users selecting the same physical place reuse the same City without sharing any personal visits, memories, map state, or bucket state.
+
+Application services obtain the authenticated owner through the `CurrentUserProvider` boundary. Travel controllers never accept a user ID, and owner-scoped repository queries are used for reads and mutations. Travel Profile, Map Overview, Place Details visits, photo content, and Bucket `visited` status are all calculated from the current user's aggregates. The frontend restores `/api/me` before loading any personal data; a protected-request `401` unmounts the authenticated app and clears its in-memory state. A different user receives a fresh authenticated app instance while the browser-global visual theme may remain.
+
+Flyway migration `V10__add_user_ownership.sql` preserves pre-authentication data under deterministic user `legacy@wandermap.local`, then makes Trip and Bucket ownership non-null and adds foreign keys and owner-focused indexes. The migration account has no published or known password and is therefore not a default login. A future explicit account-claim/recovery workflow can transfer that data; V0.4 intentionally does not add account administration. User deletion is not exposed, and the database rejects deleting a user while owned aggregates exist, preventing accidental loss while never cascading into shared City/Country rows.
 
 Photo uploads reject empty files, files over the configured limit, unsupported MIME types, and data whose signature does not match its declared type. JPEG and PNG files are decoded with the JDK image codecs with a 25-megapixel cap; WebP receives structural RIFF/WEBP validation because the application intentionally does not add a WebP codec in V1. Production hardening can add malware scanning and derivative thumbnails behind the same storage boundary.
 
@@ -148,12 +172,17 @@ src/main/java/.../travel/
   domain/          Trip aggregate, stops, photo metadata, City, Country, and coordinates
   infrastructure/  Photon/geocoding adapters and local photo storage
   persistence/     JPA repositories
+src/main/java/.../identity/
+  api/             registration, login, logout, CSRF bootstrap, and current-user DTOs
+  application/     authentication use cases and CurrentUserProvider boundary
+  domain/          UserAccount
+  security/        JWT cookie creation and Spring Security configuration
 frontend/
-  src/api/         typed HTTP client
-  src/components/  trip and itinerary UI
+  src/api/         typed HTTP client with credentials, CSRF, and centralized 401 handling
+  src/components/  auth, trip, itinerary, place, and memory UI
   src/features/map/ MapLibre view and map-data transforms
 ```
 
 ## Production build arrangement
 
-The frontend is deliberately built separately in this milestone: `pnpm run build` writes static assets to `frontend/dist`, while Maven continues packaging the Spring Boot API unchanged. This keeps backend CI and Testcontainers stable and makes the frontend straightforward to deploy to any static host. Packaging the generated assets into the Boot artifact is intentionally deferred until a deployment target is chosen.
+The frontend is deliberately built separately in this milestone: `pnpm run build` writes static assets to `frontend/dist`, while Maven continues packaging the Spring Boot API unchanged. This keeps backend CI and Testcontainers stable. Because authentication deliberately uses strict same-origin cookies and no permissive CORS, production should serve the static frontend and `/api` behind one origin (for example through a reverse proxy). Packaging generated assets into the Boot artifact is intentionally deferred until a deployment target is chosen.

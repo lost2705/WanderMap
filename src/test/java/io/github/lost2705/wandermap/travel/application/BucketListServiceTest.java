@@ -3,10 +3,13 @@ package io.github.lost2705.wandermap.travel.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.BucketListItem;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.CityLocation;
@@ -28,6 +31,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 class BucketListServiceTest {
 
     private static final Country UNITED_STATES = new Country("US", "United States");
+    private static final UserAccount USER = TestUsers.user();
 
     @Mock
     private BucketListItemRepository bucketListItemRepository;
@@ -42,24 +46,25 @@ class BucketListServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new BucketListService(bucketListItemRepository, tripStopRepository, cityResolutionService);
+        service = new BucketListService(
+                bucketListItemRepository, tripStopRepository, cityResolutionService, () -> USER);
     }
 
     @Test
     void listsCanonicalCitiesInRepositoryOrderAndDerivesVisitedStateInOneQuery() {
         City florence = city("Florence", "34.7998", "-87.6773");
         City charleston = city("Charleston", "32.7765", "-79.9311");
-        BucketListItem first = new BucketListItem(florence);
-        BucketListItem second = new BucketListItem(charleston);
-        when(bucketListItemRepository.findAllWithCityAndCountry()).thenReturn(List.of(first, second));
-        when(tripStopRepository.findVisitedCityIds()).thenReturn(List.of(charleston.getId()));
+        BucketListItem first = new BucketListItem(USER, florence);
+        BucketListItem second = new BucketListItem(USER, charleston);
+        when(bucketListItemRepository.findAllWithCityAndCountryForUser(USER.getId())).thenReturn(List.of(first, second));
+        when(tripStopRepository.findVisitedCityIdsForUser(USER.getId())).thenReturn(List.of(charleston.getId()));
 
         List<BucketListEntry> result = service.listItems();
 
         assertThat(result).extracting(entry -> entry.item().getCity()).containsExactly(florence, charleston);
         assertThat(result).extracting(BucketListEntry::visited).containsExactly(false, true);
-        verify(tripStopRepository).findVisitedCityIds();
-        verify(tripStopRepository, never()).existsByCity_Id(any());
+        verify(tripStopRepository).findVisitedCityIdsForUser(USER.getId());
+        verify(tripStopRepository, never()).existsByCity_IdAndTrip_User_Id(any(), eq(USER.getId()));
     }
 
     @Test
@@ -68,11 +73,11 @@ class BucketListServiceTest {
         when(cityResolutionService.resolve(
                         "US", "Florence", new BigDecimal("34.7998"), new BigDecimal("-87.6773")))
                 .thenReturn(florence);
-        when(bucketListItemRepository.findByCityIdWithCityAndCountry(florence.getId()))
+        when(bucketListItemRepository.findByCityIdWithCityAndCountryForUser(florence.getId(), USER.getId()))
                 .thenReturn(Optional.empty());
         when(bucketListItemRepository.saveAndFlush(any(BucketListItem.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(tripStopRepository.existsByCity_Id(florence.getId())).thenReturn(true);
+        when(tripStopRepository.existsByCity_IdAndTrip_User_Id(florence.getId(), USER.getId())).thenReturn(true);
 
         BucketListEntry result = service.add(
                 "US", "Florence", new BigDecimal("34.7998"), new BigDecimal("-87.6773"));
@@ -84,9 +89,9 @@ class BucketListServiceTest {
     @Test
     void rejectsAnAlreadySavedCanonicalCityWithoutCreatingAnotherItem() {
         City florence = city("Florence", "34.7998", "-87.6773");
-        BucketListItem existing = new BucketListItem(florence);
+        BucketListItem existing = new BucketListItem(USER, florence);
         when(cityResolutionService.resolve("US", "Florence", null, null)).thenReturn(florence);
-        when(bucketListItemRepository.findByCityIdWithCityAndCountry(florence.getId()))
+        when(bucketListItemRepository.findByCityIdWithCityAndCountryForUser(florence.getId(), USER.getId()))
                 .thenReturn(Optional.of(existing));
 
         assertThatThrownBy(() -> service.add("US", "Florence", null, null))
@@ -99,7 +104,7 @@ class BucketListServiceTest {
     void translatesTheDatabaseUniquenessRaceToDuplicateSemantics() {
         City florence = city("Florence", "34.7998", "-87.6773");
         when(cityResolutionService.resolve("US", "Florence", null, null)).thenReturn(florence);
-        when(bucketListItemRepository.findByCityIdWithCityAndCountry(florence.getId()))
+        when(bucketListItemRepository.findByCityIdWithCityAndCountryForUser(florence.getId(), USER.getId()))
                 .thenReturn(Optional.empty());
         when(bucketListItemRepository.saveAndFlush(any(BucketListItem.class)))
                 .thenThrow(new DataIntegrityViolationException("uq_bucket_list_items_city"));
@@ -110,8 +115,8 @@ class BucketListServiceTest {
 
     @Test
     void removesOnlyTheBucketListItem() {
-        BucketListItem item = new BucketListItem(city("Florence", "34.7998", "-87.6773"));
-        when(bucketListItemRepository.findById(item.getId())).thenReturn(Optional.of(item));
+        BucketListItem item = new BucketListItem(USER, city("Florence", "34.7998", "-87.6773"));
+        when(bucketListItemRepository.findByIdAndUser_Id(item.getId(), USER.getId())).thenReturn(Optional.of(item));
 
         service.remove(item.getId());
 
@@ -122,7 +127,7 @@ class BucketListServiceTest {
     @Test
     void rejectsRemovingAnUnknownItem() {
         UUID itemId = UUID.randomUUID();
-        when(bucketListItemRepository.findById(itemId)).thenReturn(Optional.empty());
+        when(bucketListItemRepository.findByIdAndUser_Id(itemId, USER.getId())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.remove(itemId))
                 .isInstanceOf(BucketListItemNotFoundException.class)

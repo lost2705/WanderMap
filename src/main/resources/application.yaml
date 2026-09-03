@@ -25,6 +25,10 @@ management:
         include: health
 
 wandermap:
+  auth:
+    jwt-secret: ${WANDERMAP_JWT_SECRET:}
+    token-ttl: ${WANDERMAP_AUTH_TOKEN_TTL:12h}
+    secure-cookie: ${WANDERMAP_AUTH_COOKIE_SECURE:true}
   geocoding:
     base-url: ${WANDERMAP_GEOCODING_BASE_URL:https://photon.komoot.io}
     user-agent: ${WANDERMAP_GEOCODING_USER_AGENT:WanderMap/0.1}
@@ -34,3 +38,13 @@ wandermap:
     photos:
       root: ${WANDERMAP_PHOTOS_ROOT:./data/photos}
       max-size: ${WANDERMAP_PHOTOS_MAX_SIZE:10MB}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+
+wandermap:
+  auth:
+    secure-cookie: ${WANDERMAP_AUTH_COOKIE_SECURE:false}

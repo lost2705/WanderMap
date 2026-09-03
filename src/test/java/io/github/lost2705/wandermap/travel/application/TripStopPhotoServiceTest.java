@@ -7,6 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.lost2705.wandermap.TestUsers;
+import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.Country;
 import io.github.lost2705.wandermap.travel.domain.Trip;
@@ -30,6 +32,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class TripStopPhotoServiceTest {
 
+    private static final UserAccount USER = TestUsers.user();
+
     @Mock
     private TripRepository tripRepository;
 
@@ -47,14 +51,15 @@ class TripStopPhotoServiceTest {
                 tripRepository,
                 photoRepository,
                 new PhotoUploadValidator(1024),
-                fileLifecycle);
+                fileLifecycle,
+                () -> USER);
     }
 
     @Test
     void persistsMetadataWithAGeneratedStorageKeyAndAppendsPositions() {
         Trip trip = tripWithStop("Rome");
         TripStop stop = trip.getStops().getFirst();
-        when(tripRepository.findByIdForUpdate(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdForUpdateForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(fileLifecycle.store(any())).thenReturn("ab/generated-one", "cd/generated-two");
 
         TripStopPhoto first = service.upload(trip.getId(), stop.getId(), jpeg("first.jpg"));
@@ -76,7 +81,7 @@ class TripStopPhotoServiceTest {
         Trip trip = tripWithStop("Rome");
         TripStop stop = trip.getStops().getFirst();
         TripStopPhoto photo = stop.addPhoto("ab/key", "rome.jpg", "image/jpeg", 3);
-        when(tripRepository.findByIdWithStops(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdWithStopsForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(fileLifecycle.read("ab/key")).thenReturn(new byte[] {9, 8, 7});
 
         PhotoContent content = service.getContent(trip.getId(), stop.getId(), photo.getId());
@@ -91,7 +96,7 @@ class TripStopPhotoServiceTest {
         Trip requestedTrip = tripWithStop("Rome");
         Trip otherTrip = tripWithStop("Florence");
         UUID otherStopId = otherTrip.getStops().getFirst().getId();
-        when(tripRepository.findByIdForUpdate(requestedTrip.getId())).thenReturn(Optional.of(requestedTrip));
+        when(tripRepository.findByIdForUpdateForUser(requestedTrip.getId(), USER.getId())).thenReturn(Optional.of(requestedTrip));
 
         assertThatThrownBy(() -> service.upload(requestedTrip.getId(), otherStopId, jpeg("wrong.jpg")))
                 .isInstanceOf(TripStopNotFoundException.class);
@@ -104,7 +109,7 @@ class TripStopPhotoServiceTest {
         TripStop stop = trip.getStops().getFirst();
         TripStopPhoto first = stop.addPhoto("ab/first", "first.jpg", "image/jpeg", 3);
         TripStopPhoto second = stop.addPhoto("cd/second", "second.jpg", "image/jpeg", 3);
-        when(tripRepository.findByIdForUpdate(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdForUpdateForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
 
         service.delete(trip.getId(), stop.getId(), first.getId());
 
@@ -118,7 +123,7 @@ class TripStopPhotoServiceTest {
     void removesStoredDataWhenMetadataPersistenceFails() {
         Trip trip = tripWithStop("Rome");
         TripStop stop = trip.getStops().getFirst();
-        when(tripRepository.findByIdForUpdate(trip.getId())).thenReturn(Optional.of(trip));
+        when(tripRepository.findByIdForUpdateForUser(trip.getId(), USER.getId())).thenReturn(Optional.of(trip));
         when(fileLifecycle.store(any())).thenReturn("ab/generated");
         org.mockito.Mockito.doThrow(new IllegalStateException("database unavailable"))
                 .when(photoRepository)
@@ -145,7 +150,7 @@ class TripStopPhotoServiceTest {
     }
 
     private static Trip tripWithStop(String cityName) {
-        Trip trip = new Trip("Trip to " + cityName, null, null);
+        Trip trip = new Trip(USER, "Trip to " + cityName, null, null);
         trip.addStop(new City(new Country("IT", "Italy"), cityName));
         return trip;
     }

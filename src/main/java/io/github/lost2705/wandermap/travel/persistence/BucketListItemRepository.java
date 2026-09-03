@@ -15,16 +15,20 @@ public interface BucketListItemRepository extends JpaRepository<BucketListItem, 
             FROM BucketListItem item
             JOIN FETCH item.city city
             JOIN FETCH city.country
+            WHERE item.user.id = :userId
             ORDER BY item.createdAt ASC, item.id ASC
             """)
-    List<BucketListItem> findAllWithCityAndCountry();
+    List<BucketListItem> findAllWithCityAndCountryForUser(@Param("userId") UUID userId);
 
     @Query("""
             SELECT item
             FROM BucketListItem item
             JOIN FETCH item.city city
             JOIN FETCH city.country
-            WHERE item.city.id = :cityId
+            WHERE item.city.id = :cityId AND item.user.id = :userId
             """)
-    Optional<BucketListItem> findByCityIdWithCityAndCountry(@Param("cityId") UUID cityId);
+    Optional<BucketListItem> findByCityIdWithCityAndCountryForUser(
+            @Param("cityId") UUID cityId, @Param("userId") UUID userId);
+
+    Optional<BucketListItem> findByIdAndUser_Id(UUID itemId, UUID userId);
 }

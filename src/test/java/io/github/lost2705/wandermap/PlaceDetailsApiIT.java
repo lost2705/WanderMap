@@ -11,8 +11,6 @@ import io.github.lost2705.wandermap.travel.persistence.CityRepository;
 import io.github.lost2705.wandermap.travel.persistence.CountryRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
 import java.math.BigDecimal;
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
@@ -20,20 +18,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class PlaceDetailsApiIT extends PostgresIntegrationTestSupport {
-
-    private final HttpClient httpClient = HttpClient.newHttpClient();
-
-    @LocalServerPort
-    private int port;
-
-    @Autowired
-    private ObjectMapper objectMapper;
+class PlaceDetailsApiIT extends AuthenticatedIntegrationTestSupport {
 
     @Autowired
     private CountryRepository countryRepository;
@@ -56,7 +45,7 @@ class PlaceDetailsApiIT extends PostgresIntegrationTestSupport {
                 "Florence historic " + UUID.randomUUID(),
                 new CityLocation(new BigDecimal("34.7998"), new BigDecimal("-87.6773"))));
 
-        Trip winterTrip = new Trip(
+        Trip winterTrip = new Trip(currentUser,
                 "Winter memories " + UUID.randomUUID(),
                 LocalDate.of(2025, 12, 1),
                 LocalDate.of(2025, 12, 8),
@@ -66,7 +55,7 @@ class PlaceDetailsApiIT extends PostgresIntegrationTestSupport {
         winterVisit.addPhoto("private/" + UUID.randomUUID(), "second.png", "image/png", 202);
         tripRepository.saveAndFlush(winterTrip);
 
-        Trip springTrip = new Trip(
+        Trip springTrip = new Trip(currentUser,
                 "Spring memories " + UUID.randomUUID(),
                 LocalDate.of(2026, 5, 1),
                 LocalDate.of(2026, 5, 12));
@@ -82,11 +71,11 @@ class PlaceDetailsApiIT extends PostgresIntegrationTestSupport {
                 "The first spring stop.");
         tripRepository.saveAndFlush(springTrip);
 
-        Trip legacyTrip = new Trip("Legacy visit " + UUID.randomUUID(), null, null);
+        Trip legacyTrip = new Trip(currentUser, "Legacy visit " + UUID.randomUUID(), null, null);
         TripStop legacyVisit = legacyTrip.addStop(florence);
         tripRepository.saveAndFlush(legacyTrip);
 
-        Trip otherPlaceTrip = new Trip("Other place " + UUID.randomUUID(), null, null);
+        Trip otherPlaceTrip = new Trip(currentUser, "Other place " + UUID.randomUUID(), null, null);
         otherPlaceTrip.addStop(distinctPlaceAtSameCoordinates);
         tripRepository.saveAndFlush(otherPlaceTrip);
 
@@ -131,7 +120,7 @@ class PlaceDetailsApiIT extends PostgresIntegrationTestSupport {
     }
 
     private HttpResponse<String> get(String path) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build();
+        HttpRequest request = authenticatedRequest(path).GET().build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 }
