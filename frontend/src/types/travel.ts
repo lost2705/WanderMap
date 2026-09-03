@@ -76,6 +76,59 @@ export interface TravelProfile {
   photoCount: number
   revisitedCityCount: number
   revisitedCountryCount: number
+  highlights: TravelHighlights
+  achievements: Achievement[]
+}
+
+export interface TravelHighlights {
+  mostVisitedCity: CityHighlight | null
+  mostVisitedCountry: CountryHighlight | null
+  longestJourney: JourneyDurationHighlight | null
+  mostRecentJourney: JourneyDateHighlight | null
+  mostMemoryRichJourney: JourneyMemoryHighlight | null
+}
+
+export interface CityHighlight {
+  cityId: string
+  cityName: string
+  countryCode: string
+  countryName: string
+  visitCount: number
+}
+
+export interface CountryHighlight {
+  countryCode: string
+  countryName: string
+  visitCount: number
+}
+
+export interface JourneyDurationHighlight {
+  journeyId: string
+  journeyName: string
+  dayCount: number
+}
+
+export interface JourneyDateHighlight {
+  journeyId: string
+  journeyName: string
+  startDate: string
+}
+
+export interface JourneyMemoryHighlight {
+  journeyId: string
+  journeyName: string
+  memoryCount: number
+}
+
+export interface Achievement {
+  code: string
+  title: string
+  description: string
+  category: 'journeys' | 'exploration' | 'memories' | 'time'
+  unlocked: boolean
+  currentValue: number
+  targetValue: number
+  progressPercent: number
 }
 
 export interface BucketListItem {

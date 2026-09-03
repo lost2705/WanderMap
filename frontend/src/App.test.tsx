@@ -220,6 +220,38 @@ const travelProfile: TravelProfile = {
   photoCount: 1,
   revisitedCityCount: 0,
   revisitedCountryCount: 0,
+  highlights: {
+    mostVisitedCity: {
+      cityId: 'city-rome',
+      cityName: 'Rome',
+      countryCode: 'IT',
+      countryName: 'Italy',
+      visitCount: 1,
+    },
+    mostVisitedCountry: { countryCode: 'IT', countryName: 'Italy', visitCount: 1 },
+    longestJourney: null,
+    mostRecentJourney: null,
+    mostMemoryRichJourney: { journeyId: 'italy', journeyName: 'Italy', memoryCount: 1 },
+  },
+  achievements: [{
+    code: 'FIRST_JOURNEY',
+    title: 'First chapter',
+    description: 'Create your first Journey.',
+    category: 'journeys',
+    unlocked: true,
+    currentValue: 2,
+    targetValue: 1,
+    progressPercent: 100,
+  }, {
+    code: 'COUNTRY_EXPLORER',
+    title: 'Country explorer',
+    description: 'Visit five countries.',
+    category: 'exploration',
+    unlocked: false,
+    currentValue: 2,
+    targetValue: 5,
+    progressPercent: 40,
+  }],
 }
 
 const optionalKyotoItem: BucketListItem = {
@@ -458,6 +490,14 @@ describe('App trip selection', () => {
       photoCount: 0,
       revisitedCityCount: 0,
       revisitedCountryCount: 0,
+      highlights: {
+        mostVisitedCity: null,
+        mostVisitedCountry: null,
+        longestJourney: null,
+        mostRecentJourney: null,
+        mostMemoryRichJourney: null,
+      },
+      achievements: [],
     })
 
     render(<App />)
@@ -1489,6 +1529,80 @@ describe('App Memory editing', () => {
     expect(updateStopJournal).toHaveBeenCalledWith('japan', 'tokyo', expect.objectContaining({
       note: 'Updated first Tokyo visit.',
     }))
+  })
+})
+
+describe('App Travel Profile navigation', () => {
+  const currentUser = { id: 'alice', displayName: 'Alice Atlas', email: 'alice@example.com' }
+
+  it('opens the dedicated profile and returns to the same selected Journey and map instance', async () => {
+    render(<App currentUser={currentUser} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    await waitFor(() => expectMapState('italy', 'IT', 'italy'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+
+    const profileView = screen.getByRole('region', { name: 'Travel Profile' })
+    const backButton = within(profileView).getByRole('button', { name: 'Back to map' })
+    expect(within(profileView).getByRole('heading', { name: 'Travel Profile' })).toBeTruthy()
+    expect(within(profileView).getByText('Alice Atlas')).toBeTruthy()
+    expect(within(profileView).getByText('Country explorer')).toBeTruthy()
+    expect(document.activeElement).toBe(backButton)
+    expect(document.querySelector('#journey-navigation')?.hasAttribute('inert')).toBe(true)
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(true)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+
+    fireEvent.click(backButton)
+
+    expect(screen.queryByRole('heading', { name: 'Travel Profile' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('italy', 'IT', 'italy')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'View profile' })))
+  })
+
+  it('preserves the global World state after a profile round trip', async () => {
+    render(<App currentUser={currentUser} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    await waitFor(() => expectMapState('global', 'IT,JP', 'italy,japan'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to map' }))
+
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('global', 'IT,JP', 'italy,japan')
+  })
+
+  it('shows a recoverable local error when the profile API is unavailable', async () => {
+    vi.mocked(getTravelProfile).mockRejectedValueOnce(new Error('offline'))
+    render(<App currentUser={currentUser} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    await waitFor(() => expect(getTravelProfile).toHaveBeenCalledTimes(1))
+    vi.mocked(getTravelProfile).mockResolvedValueOnce(travelProfile)
+
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+
+    expect(screen.getByRole('alert').textContent).toContain('Travel profile is temporarily unavailable.')
+    expect(screen.getByTestId('map-state')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Country explorer')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('restores focus to the visible map navigation control on mobile', async () => {
+    stubNavigationViewport(true)
+    render(<App currentUser={currentUser} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Open journey navigation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View profile' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to map' }))
+
+    await waitFor(() => expect(document.activeElement)
+      .toBe(screen.getByRole('button', { name: 'Open journey navigation' })))
   })
 })
 

@@ -319,6 +319,52 @@ class AuthenticationApiIT extends PostgresIntegrationTestSupport {
                 assertThat(cacheControl).contains("no-store").doesNotContain("max-age", "public"));
     }
 
+    @Test
+    void scopesProfileHighlightsAndAchievementsWhenUsersShareACanonicalCity() throws Exception {
+        Session alice = new Session();
+        Session bob = new Session();
+        alice.register("alice-profile-" + UUID.randomUUID() + "@example.com", "Alice");
+        bob.register("bob-profile-" + UUID.randomUUID() + "@example.com", "Bob");
+
+        String aliceTripId = json(alice.request(
+                "POST", "/api/trips", "{\"name\":\"Alice in Rome\",\"startDate\":\"2026-04-01\"}"))
+                .path("id").asText();
+        String bobTripId = json(bob.request(
+                "POST", "/api/trips", "{\"name\":\"Bob in Rome\",\"startDate\":\"2026-05-01\"}"))
+                .path("id").asText();
+        String requestBody = """
+                {"countryCode":"IT","cityName":"Rome","latitude":41.9028,"longitude":12.4964}
+                """;
+        String sharedCityId = null;
+        for (int visit = 0; visit < 2; visit++) {
+            JsonNode stop = json(alice.request("POST", "/api/trips/" + aliceTripId + "/stops", requestBody));
+            sharedCityId = stop.path("city").path("id").asText();
+        }
+        for (int visit = 0; visit < 5; visit++) {
+            JsonNode stop = json(bob.request("POST", "/api/trips/" + bobTripId + "/stops", requestBody));
+            assertThat(stop.path("city").path("id").asText()).isEqualTo(sharedCityId);
+        }
+
+        JsonNode aliceProfile = json(alice.request("GET", "/api/travel-profile", null));
+        JsonNode bobProfile = json(bob.request("GET", "/api/travel-profile", null));
+
+        assertThat(aliceProfile.path("visitCount").asInt()).isEqualTo(2);
+        assertThat(aliceProfile.path("revisitedCityCount").asInt()).isEqualTo(1);
+        assertThat(aliceProfile.path("highlights").path("mostVisitedCity").path("cityId").asText())
+                .isEqualTo(sharedCityId);
+        assertThat(aliceProfile.path("highlights").path("mostVisitedCity").path("visitCount").asInt())
+                .isEqualTo(2);
+        assertThat(aliceProfile.path("highlights").path("mostVisitedCountry").path("visitCount").asInt())
+                .isEqualTo(2);
+        assertThat(achievement(aliceProfile, "JOURNEY_KEEPER").path("currentValue").asInt()).isEqualTo(1);
+        assertThat(achievement(aliceProfile, "JOURNEY_KEEPER").path("progressPercent").asInt()).isEqualTo(20);
+        assertThat(achievement(aliceProfile, "FIRST_JOURNEY").path("unlocked").asBoolean()).isTrue();
+        assertThat(achievement(aliceProfile, "CITY_HOPPER").path("currentValue").asInt()).isEqualTo(1);
+        assertThat(bobProfile.path("visitCount").asInt()).isEqualTo(5);
+        assertThat(bobProfile.path("highlights").path("mostVisitedCity").path("visitCount").asInt())
+                .isEqualTo(5);
+    }
+
     private JsonNode json(HttpResponse<String> response) throws Exception {
         return objectMapper.readTree(response.body());
     }
@@ -326,6 +372,15 @@ class AuthenticationApiIT extends PostgresIntegrationTestSupport {
     private void assertProblem(HttpResponse<String> response, int status, String code) throws Exception {
         assertThat(response.statusCode()).isEqualTo(status);
         assertThat(json(response).path("code").asText()).isEqualTo(code);
+    }
+
+    private static JsonNode achievement(JsonNode profile, String code) {
+        for (JsonNode achievement : profile.path("achievements")) {
+            if (code.equals(achievement.path("code").asText())) {
+                return achievement;
+            }
+        }
+        throw new AssertionError("Missing achievement " + code);
     }
 
     private final class Session {

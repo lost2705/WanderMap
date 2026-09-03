@@ -42,11 +42,20 @@ class TravelApiIT extends AuthenticatedIntegrationTestSupport {
                 "photoCount",
                 "revisitedCityCount",
                 "revisitedCountryCount");
-        assertThat(profile.size()).isEqualTo(fieldNames.size());
+        assertThat(profile.size()).isEqualTo(fieldNames.size() + 2);
         fieldNames.forEach(fieldName -> {
             JsonNode value = profile.path(fieldName);
             assertThat(value.isIntegralNumber()).isTrue();
             assertThat(value.asLong()).isNotNegative();
+        });
+        assertThat(profile.path("highlights").size()).isEqualTo(5);
+        assertThat(profile.path("highlights")).allSatisfy(highlight -> assertThat(highlight.isNull()).isTrue());
+        assertThat(profile.path("achievements")).hasSize(12).allSatisfy(achievement -> {
+            assertThat(achievement.path("code").asText()).isNotBlank();
+            assertThat(achievement.path("unlocked").asBoolean()).isFalse();
+            assertThat(achievement.path("currentValue").asLong()).isZero();
+            assertThat(achievement.path("targetValue").asLong()).isPositive();
+            assertThat(achievement.path("progressPercent").asInt()).isZero();
         });
     }
 

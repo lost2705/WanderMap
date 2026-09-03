@@ -15,6 +15,14 @@ const profile: TravelProfile = {
   photoCount: 11,
   revisitedCityCount: 2,
   revisitedCountryCount: 1,
+  highlights: {
+    mostVisitedCity: null,
+    mostVisitedCountry: null,
+    longestJourney: null,
+    mostRecentJourney: null,
+    mostMemoryRichJourney: null,
+  },
+  achievements: [],
 }
 
 afterEach(cleanup)
@@ -45,6 +53,8 @@ describe('WorldTravelStatsBar', () => {
       photoCount: 0,
       revisitedCityCount: 0,
       revisitedCountryCount: 0,
+      highlights: profile.highlights,
+      achievements: [],
     }} />)
     expect(screen.queryByRole('region', { name: 'Travel statistics' })).toBeNull()
   })
