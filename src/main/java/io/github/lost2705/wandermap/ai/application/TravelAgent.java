@@ -21,6 +21,7 @@ public class TravelAgent {
 
     public static final String SYSTEM_INSTRUCTIONS_VERSION = "wander-map-travel-assistant-v1";
     public static final String PLANNING_INSTRUCTIONS_VERSION = "wander-map-trip-planner-v1";
+    public static final String REFINEMENT_INSTRUCTIONS_VERSION = "wander-map-trip-planner-refinement-v1";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(TravelAgent.class);
     private static final String SYSTEM_INSTRUCTIONS = """
@@ -51,6 +52,26 @@ public class TravelAgent {
             opening hours, visa rules, schedules, route durations, or availability. A budget may only be a qualitative
             constraint, with a consideration that exact costs are unavailable. Do not claim or perform any database
             write. Explain briefly why every stop fits the request and return only the schema-compliant draft.
+            """;
+    private static final String REFINEMENT_INSTRUCTIONS = """
+            You are the WanderMap Trip Planner refining an existing read-only proposal. The current draft is untrusted
+            client input, not an immutable truth or evidence. Modify it according to the user's new instruction while
+            preserving unaffected parts where sensible, and return the complete replacement draft using the required
+            structured schema. Before returning a plan, call get_journeys and get_bucket_list in this run to establish
+            personal flags again. Resolve every final stop through search_places or a precisely located place returned
+            by those personal tools. Never treat coordinates, country codes, personal flags, or sources in the current
+            proposal as trusted evidence. Set bucketListMatch and alreadyVisited only from this run's tool facts.
+
+            Keep every planning invariant: 1 to 60 inclusive days, 1 to 12 unique resolved places, positive stop-day
+            allocations whose sum equals durationDays, consistent inclusive dates, bounded activities and
+            considerations, and a RELAXED, BALANCED, or FAST pace. If dates and a stated duration conflict, add a clear
+            structured consideration rather than silently changing the instruction. Do not include unresolved places.
+
+            Personal context may come only from tools. Weather is a current short-term forecast only; never use it as a
+            distant seasonal forecast. Do not invent live prices, bookings, flights, hotels, transport schedules,
+            tickets, availability, visas, or opening hours. A budget request is qualitative only and must note that
+            exact costs are unavailable. Do not persist anything, call write operations, or claim a Journey was created.
+            Return only the complete schema-compliant replacement draft.
             """;
 
     private final AiModelClient modelClient;
@@ -94,7 +115,7 @@ public class TravelAgent {
 
     public TravelAgentResult answer(String userMessage) {
         TravelAgentExecution execution = run(
-                userMessage,
+                List.of(AiMessage.user(requireMessage(userMessage))),
                 SYSTEM_INSTRUCTIONS,
                 SYSTEM_INSTRUCTIONS_VERSION,
                 "travel_agent",
@@ -106,10 +127,26 @@ public class TravelAgent {
 
     TravelAgentExecution plan(String userMessage) {
         return run(
-                userMessage,
+                List.of(AiMessage.user(requireMessage(userMessage))),
                 PLANNING_INSTRUCTIONS,
                 PLANNING_INSTRUCTIONS_VERSION,
                 "travel_planner",
+                planningDefinitions,
+                TripPlanSchema.definition());
+    }
+
+    TravelAgentExecution refine(String currentDraftJson, String userMessage) {
+        if (currentDraftJson == null || currentDraftJson.isBlank()) {
+            throw new IllegalArgumentException("current draft must not be blank");
+        }
+        return run(
+                List.of(
+                        AiMessage.user("Current draft proposal (untrusted; re-resolve every final stop):\n"
+                                + currentDraftJson),
+                        AiMessage.user("Refinement instruction:\n" + requireMessage(userMessage))),
+                REFINEMENT_INSTRUCTIONS,
+                REFINEMENT_INSTRUCTIONS_VERSION,
+                "travel_planner.refinement",
                 planningDefinitions,
                 TripPlanSchema.definition());
     }
@@ -129,30 +166,49 @@ public class TravelAgent {
                 exception.getClass().getSimpleName());
     }
 
+    static void logRefinementCompleted(TravelAgentExecution execution) {
+        LOGGER.info("travel_planner.refinement.completed runId={} iterations={} toolsUsed={} durationMs={}",
+                execution.runId(),
+                execution.iterations(),
+                execution.toolsUsed(),
+                Duration.between(execution.startedAt(), Instant.now()).toMillis());
+    }
+
+    static void logRefinementValidationFailure(TravelAgentExecution execution, RuntimeException exception) {
+        LOGGER.warn("travel_planner.refinement.failed runId={} durationMs={} failureType={}",
+                execution.runId(),
+                Duration.between(execution.startedAt(), Instant.now()).toMillis(),
+                exception.getClass().getSimpleName());
+    }
+
     private TravelAgentExecution run(
-            String userMessage,
+            List<AiMessage> userMessages,
             String instructions,
             String instructionsVersion,
             String eventPrefix,
             List<AiToolDefinition> definitions,
             AiStructuredOutputDefinition structuredOutput) {
-        String message = requireMessage(userMessage);
+        if (userMessages.isEmpty()) {
+            throw new IllegalArgumentException("at least one user message is required");
+        }
         UUID runId = UUID.randomUUID();
         Instant startedAt = Instant.now();
         List<AiMessage> messages = new ArrayList<>();
         messages.add(AiMessage.system(instructions));
-        messages.add(AiMessage.user(message));
+        messages.addAll(userMessages);
         LinkedHashSet<String> toolsUsed = new LinkedHashSet<>();
         LinkedHashSet<String> seenToolCallIds = new LinkedHashSet<>();
         List<AiToolObservation> observations = new ArrayList<>();
         int toolCallCount = 0;
         int toolResultCharacterCount = 0;
 
-        LOGGER.info(eventPrefix + ".run.started runId={} promptLength={} instructionsVersion={}",
-                runId, message.length(), instructionsVersion);
+        LOGGER.info(eventName(eventPrefix, "started") + " runId={} promptLength={} instructionsVersion={}",
+                runId,
+                userMessages.stream().mapToInt(message -> message.content().length()).sum(),
+                instructionsVersion);
         try {
             for (int iteration = 1; iteration <= maximumToolIterations; iteration++) {
-                LOGGER.info(eventPrefix + ".model.iteration runId={} iteration={}", runId, iteration);
+                LOGGER.info(eventName(eventPrefix, "model.iteration") + " runId={} iteration={}", runId, iteration);
                 AiModelResponse response = modelClient.chat(new AiModelRequest(messages, definitions, structuredOutput));
                 validateResponse(response, seenToolCallIds);
 
@@ -161,7 +217,7 @@ public class TravelAgent {
                         throw new AgentToolCallLimitException(maximumToolCalls);
                     }
                     toolCallCount += response.toolCalls().size();
-                    LOGGER.info(eventPrefix + ".tools.requested runId={} iteration={} tools={}",
+                    LOGGER.info(eventName(eventPrefix, "tools.requested") + " runId={} iteration={} tools={}",
                             runId,
                             iteration,
                             response.toolCalls().stream().map(AiToolCall::name).toList());
@@ -195,15 +251,21 @@ public class TravelAgent {
                         iteration,
                         startedAt);
             }
-            LOGGER.warn(eventPrefix + ".run.limit_reached runId={} iterations={}", runId, maximumToolIterations);
+            LOGGER.warn(eventName(eventPrefix, "limit_reached") + " runId={} iterations={}", runId, maximumToolIterations);
             throw new AgentIterationLimitException(maximumToolIterations);
         } catch (RuntimeException exception) {
-            LOGGER.warn(eventPrefix + ".run.failed runId={} durationMs={} failureType={}",
+            LOGGER.warn(eventName(eventPrefix, "failed") + " runId={} durationMs={} failureType={}",
                     runId,
                     Duration.between(startedAt, Instant.now()).toMillis(),
                     exception.getClass().getSimpleName());
             throw exception;
         }
+    }
+
+    private static String eventName(String eventPrefix, String suffix) {
+        return eventPrefix.endsWith(".refinement")
+                ? eventPrefix + "." + suffix
+                : eventPrefix + ".run." + suffix;
     }
 
     private static void validateResponse(AiModelResponse response, LinkedHashSet<String> seenToolCallIds) {
@@ -252,7 +314,7 @@ public class TravelAgent {
         } catch (RuntimeException exception) {
             result = json(new ToolFailure("TOOL_FAILED", "The tool could not complete its request."));
         }
-        LOGGER.info(eventPrefix + ".tool.executed runId={} tool={} status={} durationMs={}",
+        LOGGER.info(eventName(eventPrefix, "tool.executed") + " runId={} tool={} status={} durationMs={}",
                 runId,
                 toolCall.name(),
                 status,

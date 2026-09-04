@@ -1,6 +1,7 @@
 package io.github.lost2705.wandermap.ai.api;
 
 import io.github.lost2705.wandermap.ai.api.dto.TripPlanningRequest;
+import io.github.lost2705.wandermap.ai.api.dto.TripPlanRefinementRequest;
 import io.github.lost2705.wandermap.ai.api.dto.TripPlanningResponse;
 import io.github.lost2705.wandermap.ai.application.TripPlanningResult;
 import io.github.lost2705.wandermap.ai.application.TripPlanningService;
@@ -23,6 +24,12 @@ public class TripPlanningController {
     @PostMapping
     public TripPlanningResponse createDraft(@Valid @RequestBody TripPlanningRequest request) {
         TripPlanningResult result = tripPlanningService.createDraft(request.message());
+        return new TripPlanningResponse(result.runId(), result.plan(), result.toolsUsed());
+    }
+
+    @PostMapping("/refine")
+    public TripPlanningResponse refineDraft(@Valid @RequestBody TripPlanRefinementRequest request) {
+        TripPlanningResult result = tripPlanningService.refineDraft(request.plan(), request.message());
         return new TripPlanningResponse(result.runId(), result.plan(), result.toolsUsed());
     }
 }

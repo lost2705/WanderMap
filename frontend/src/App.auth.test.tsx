@@ -58,7 +58,7 @@ vi.mock('./api/profile', () => ({ getTravelProfile: vi.fn() }))
 vi.mock('./api/places', () => ({ getPlaceDetails: vi.fn() }))
 vi.mock('./api/cities', () => ({ searchCities: vi.fn() }))
 vi.mock('./api/assistant', () => ({ askTravelAssistant: vi.fn() }))
-vi.mock('./api/planner', () => ({ createTripPlan: vi.fn() }))
+vi.mock('./api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn() }))
 vi.mock('./features/map/MapView', () => ({
   MapView: ({ selectedTrip }: { selectedTrip: { name: string } | null }) => (
     <div data-testid="authenticated-map">{selectedTrip?.name ?? 'World map'}</div>
@@ -68,7 +68,7 @@ vi.mock('./features/map/MapView', () => ({
 import { getCurrentUser, login, logout, register } from './api/auth'
 import { askTravelAssistant } from './api/assistant'
 import { listBucketListItems } from './api/bucketList'
-import { createTripPlan } from './api/planner'
+import { createTripPlan, refineTripPlan } from './api/planner'
 import { getTravelProfile } from './api/profile'
 import { getMapOverview, getTrip, listTrips } from './api/trips'
 import App from './App'
@@ -92,6 +92,36 @@ const bobTrips: TripSummary[] = [{
   description: null,
   stopCount: 0,
 }]
+
+function plannerResponse(title: string): TripPlanningResponse {
+  return {
+    runId: 'alice-plan-run',
+    toolsUsed: ['get_journeys'],
+    plan: {
+      title,
+      summary: 'A private plan grounded in Alice travel history.',
+      durationDays: 2,
+      startDate: null,
+      endDate: null,
+      destinationSummary: 'Rome, Italy',
+      pace: 'RELAXED',
+      stops: [{
+        cityName: 'Rome',
+        countryCode: 'IT',
+        countryName: 'Italy',
+        latitude: 41.9028,
+        longitude: 12.4964,
+        daysAtStop: 2,
+        reason: 'Alice travel context.',
+        activities: ['Walk through the historic centre'],
+        bucketListMatch: false,
+        alreadyVisited: true,
+      }],
+      considerations: [],
+      sourcesUsed: ['Journeys'],
+    },
+  }
+}
 
 function profileFor(countryCount: number): TravelProfile {
   return {
@@ -359,6 +389,44 @@ describe('App authentication boundary', () => {
 
     expect(screen.getByText('Bob')).toBeTruthy()
     expect(screen.queryByText('Alice private itinerary')).toBeNull()
+    expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
+  })
+
+  it('does not render Alice draft or a late refinement after logout and Bob login', async () => {
+    let resolveRefinement!: (value: TripPlanningResponse) => void
+    vi.mocked(getCurrentUser).mockResolvedValue(alice)
+    vi.mocked(login).mockResolvedValue(bob)
+    vi.mocked(createTripPlan).mockResolvedValue(plannerResponse('Alice current draft'))
+    vi.mocked(refineTripPlan).mockReturnValueOnce(new Promise((done) => { resolveRefinement = done }))
+    render(<App />)
+    await screen.findByTestId('authenticated-map')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Use Alice travel history' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Alice current draft' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'Use fewer cities' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await waitFor(() => expect(refineTripPlan).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByTestId('authenticated-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+
+    await act(async () => resolveRefinement(plannerResponse('Alice refined private draft')))
+
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Alice current draft' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Alice refined private draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Updating plan…' })).toBeNull()
     expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
   })
 

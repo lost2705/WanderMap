@@ -33,4 +33,23 @@ class AiAssistantDisabledApiIT extends AuthenticatedIntegrationTestSupport {
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(objectMapper.readTree(response.body()).path("code").asText()).isEqualTo("AI_DISABLED");
     }
+
+    @Test
+    void tripPlanRefinementIsAlsoDisabledByDefault() throws Exception {
+        HttpRequest request = csrf(authenticatedRequest("/api/ai/trip-plan/refine"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"plan":{"title":"Rome","summary":"A draft.","durationDays":1,
+                         "startDate":null,"endDate":null,"destinationSummary":"Rome","pace":"RELAXED",
+                         "stops":[{"cityName":"Rome","countryCode":"IT","countryName":"Italy",
+                         "latitude":41.9028,"longitude":12.4964,"daysAtStop":1,"reason":"A good fit.",
+                         "activities":[],"bucketListMatch":false,"alreadyVisited":false}],
+                         "considerations":[],"sourcesUsed":[]},"message":"Make it more relaxed"}
+                        """))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(objectMapper.readTree(response.body()).path("code").asText()).isEqualTo("AI_DISABLED");
+    }
 }

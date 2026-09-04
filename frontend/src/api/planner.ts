@@ -40,3 +40,10 @@ export function createTripPlan(message: string): Promise<TripPlanningResponse> {
     body: JSON.stringify({ message }),
   })
 }
+
+export function refineTripPlan(plan: TripPlanDraft, message: string): Promise<TripPlanningResponse> {
+  return request<TripPlanningResponse>('/api/ai/trip-plan/refine', {
+    method: 'POST',
+    body: JSON.stringify({ plan, message }),
+  })
+}

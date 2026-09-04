@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/client'
 
-vi.mock('../api/planner', () => ({ createTripPlan: vi.fn() }))
+vi.mock('../api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn() }))
 
-import { createTripPlan } from '../api/planner'
+import { createTripPlan, refineTripPlan } from '../api/planner'
 import type { TripPlanningResponse } from '../api/planner'
 import { TripPlannerView } from './TripPlannerView'
 
@@ -14,6 +14,7 @@ afterEach(cleanup)
 
 beforeEach(() => {
   vi.mocked(createTripPlan).mockReset()
+  vi.mocked(refineTripPlan).mockReset()
 })
 
 describe('TripPlannerView', () => {
@@ -37,6 +38,8 @@ describe('TripPlannerView', () => {
     expect(screen.getByText('Exact October weather is not available yet.')).toBeTruthy()
     expect(screen.getByText('Bucket List')).toBeTruthy()
     expect(screen.getByText('Place Search')).toBeTruthy()
+    expect((screen.getByLabelText('How should this plan change?') as HTMLTextAreaElement).maxLength).toBe(4000)
+    expect((screen.getByRole('button', { name: 'Update plan' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('shows a loading state while the draft is being created', () => {
@@ -49,6 +52,84 @@ describe('TripPlannerView', () => {
 
     expect(screen.getByRole('status').textContent).toContain('creating your trip draft')
     expect(screen.getByRole('button', { name: 'Creating draft…' })).toBeTruthy()
+  })
+
+  it('uses a preset as a normal refinement instruction and replaces the plan on success', async () => {
+    const initial = planResponse()
+    const refined = planResponse('A calmer Italy')
+    refined.plan.pace = 'RELAXED'
+    refined.plan.stops = [refined.plan.stops[0]!]
+    refined.plan.durationDays = 4
+    vi.mocked(createTripPlan).mockResolvedValue(initial)
+    vi.mocked(refineTripPlan).mockResolvedValue(refined)
+    render(<TripPlannerView onBack={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Plan Italy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Make it more relaxed.' }))
+    expect((screen.getByLabelText('How should this plan change?') as HTMLTextAreaElement).value)
+      .toBe('Make it more relaxed.')
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+
+    await screen.findByRole('heading', { name: 'A calmer Italy' })
+    expect(refineTripPlan).toHaveBeenCalledWith(initial.plan, 'Make it more relaxed.')
+    expect(screen.queryByRole('heading', { name: 'Florence' })).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('Plan updated')
+  })
+
+  it('keeps the current plan visible and prevents duplicate submissions while refining', async () => {
+    let resolveRefinement!: (value: TripPlanningResponse) => void
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(refineTripPlan).mockReturnValue(new Promise((resolve) => { resolveRefinement = resolve }))
+    render(<TripPlannerView onBack={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Plan Italy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'Use fewer cities' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+
+    expect(screen.getByRole('heading', { name: 'Italy in October' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Florence' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Updating plan…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toContain('current plan will stay visible')
+    fireEvent.click(screen.getByRole('button', { name: 'Updating plan…' }))
+    expect(refineTripPlan).toHaveBeenCalledTimes(1)
+
+    await act(async () => resolveRefinement(planResponse('Updated Italy')))
+    await screen.findByRole('heading', { name: 'Updated Italy' })
+  })
+
+  it('keeps the old plan and instruction after an error so refinement can be retried', async () => {
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(refineTripPlan)
+      .mockRejectedValueOnce(new ApiError(502, 'AI_INVALID_PLAN'))
+      .mockResolvedValueOnce(planResponse('Retried Italy'))
+    render(<TripPlannerView onBack={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Plan Italy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'Shorten to five days' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('consistent draft')
+    expect(screen.getByRole('heading', { name: 'Italy in October' })).toBeTruthy()
+    expect((screen.getByLabelText('How should this plan change?') as HTMLTextAreaElement).value)
+      .toBe('Shorten to five days')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await screen.findByRole('heading', { name: 'Retried Italy' })
+    expect(refineTripPlan).toHaveBeenCalledTimes(2)
   })
 
   it('starts a new plan without persisting the previous result', async () => {
@@ -64,6 +145,7 @@ describe('TripPlannerView', () => {
 
     expect(screen.queryByRole('heading', { name: 'Italy in October' })).toBeNull()
     expect((screen.getByLabelText('What kind of trip are you imagining?') as HTMLTextAreaElement).value).toBe('')
+    expect(screen.queryByLabelText('How should this plan change?')).toBeNull()
   })
 
   it('shows controlled recoverable errors', async () => {
@@ -93,14 +175,37 @@ describe('TripPlannerView', () => {
     expect(screen.queryByText('41.9028')).toBeNull()
     expect(screen.queryByText('run-planner-1')).toBeNull()
   })
+
+  it('renders refined content as text without exposing raw coordinates or run metadata', async () => {
+    const refined = planResponse('<script>alert(1)</script>Refined Italy')
+    refined.plan.summary = '<img src=x onerror=alert(1)>Still safe'
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(refineTripPlan).mockResolvedValue(refined)
+    render(<TripPlannerView onBack={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Plan Italy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'Refine safely' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+
+    await screen.findByRole('heading', { name: '<script>alert(1)</script>Refined Italy' })
+    expect(document.querySelector('.trip-plan-heading script')).toBeNull()
+    expect(document.querySelector('.trip-plan-summary img')).toBeNull()
+    expect(screen.queryByText('41.9028')).toBeNull()
+    expect(screen.queryByText('run-planner-1')).toBeNull()
+  })
 })
 
-function planResponse(): TripPlanningResponse {
+function planResponse(title = 'Italy in October'): TripPlanningResponse {
   return {
     runId: 'run-planner-1',
     toolsUsed: ['get_bucket_list', 'search_places'],
     plan: {
-      title: 'Italy in October',
+      title,
       summary: 'A relaxed trip focused on food and architecture.',
       durationDays: 7,
       startDate: null,

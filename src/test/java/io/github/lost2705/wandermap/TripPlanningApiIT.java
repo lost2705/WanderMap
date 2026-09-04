@@ -88,6 +88,77 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
                 .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"Plan Italy\"}"))
                 .build();
         assertThat(httpClient.send(wrongCsrf, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(403);
+
+        HttpRequest anonymousRefinement = HttpRequest.newBuilder(uri("/api/ai/trip-plan/refine"))
+                .header(csrfDetails.path("headerName").asText(), token)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"plan\":{},\"message\":\"Refine it\"}"))
+                .build();
+        assertThat(anonymousClient.send(anonymousRefinement, HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(401);
+
+        HttpRequest refinementMissingCsrf = authenticatedRequest("/api/ai/trip-plan/refine")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"plan\":{},\"message\":\"Refine it\"}"))
+                .build();
+        assertThat(httpClient.send(refinementMissingCsrf, HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(403);
+
+        HttpRequest refinementWrongCsrf = authenticatedRequest("/api/ai/trip-plan/refine")
+                .header("X-XSRF-TOKEN", "wrong-token")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"plan\":{},\"message\":\"Refine it\"}"))
+                .build();
+        assertThat(httpClient.send(refinementWrongCsrf, HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(403);
+    }
+
+    @Test
+    void authenticatedRefinementReturnsARevalidatedReplacementAndDerivedSources() throws Exception {
+        addJourneyWithStop("Italy", "Rome", "IT", "41.9028", "12.4964");
+        JsonNode original = objectMapper.readTree(post("Plan one relaxed day in Italy.").body()).path("plan");
+        ((tools.jackson.databind.node.ObjectNode) original).set(
+                "sourcesUsed", objectMapper.readTree("[\"Weather\"]"));
+        ((tools.jackson.databind.node.ObjectNode) original.path("stops").get(0)).put("alreadyVisited", false);
+
+        HttpResponse<String> response = postJson(
+                "/api/ai/trip-plan/refine",
+                refinementBody(original, "Keep Rome but make it more relaxed."));
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode body = objectMapper.readTree(response.body());
+        assertThat(UUID.fromString(body.path("runId").asText())).isNotNull();
+        assertThat(body.path("plan").path("stops").get(0).path("cityName").asText()).isEqualTo("Rome");
+        assertThat(body.path("plan").path("stops").get(0).path("alreadyVisited").asBoolean()).isTrue();
+        assertThat(body.path("plan").path("sourcesUsed")).extracting(JsonNode::asText)
+                .containsExactly("Journeys", "Bucket List");
+        assertThat(body.path("toolsUsed")).extracting(JsonNode::asText)
+                .containsExactly("get_journeys", "get_bucket_list");
+        assertThat(model.lastRequest().messages().getFirst().content())
+                .contains("untrusted", "get_journeys", "get_bucket_list");
+    }
+
+    @Test
+    void invalidClientDraftIsBadRequestWhileInvalidRefinementOutputIsAiInvalidPlan() throws Exception {
+        AiModelRequest before = model.lastRequest();
+        HttpResponse<String> invalidClient = postJson(
+                "/api/ai/trip-plan/refine",
+                """
+                {"plan":{"title":"Broken","summary":"Broken","durationDays":1,
+                 "startDate":null,"endDate":null,"destinationSummary":"Nowhere","pace":"RELAXED",
+                 "stops":[],"considerations":[],"sourcesUsed":[]},"message":"Refine it"}
+                """);
+        assertThat(invalidClient.statusCode()).isEqualTo(400);
+        assertThat(objectMapper.readTree(invalidClient.body()).path("code").asText()).isEqualTo("INVALID_REQUEST");
+        assertThat(model.lastRequest()).isSameAs(before);
+
+        addJourneyWithStop("Italy", "Rome", "IT", "41.9028", "12.4964");
+        JsonNode original = objectMapper.readTree(post("Plan Rome").body()).path("plan");
+        HttpResponse<String> invalidModel = postJson(
+                "/api/ai/trip-plan/refine",
+                refinementBody(original, "invalid refinement"));
+        assertThat(invalidModel.statusCode()).isEqualTo(502);
+        assertThat(objectMapper.readTree(invalidModel.body()).path("code").asText()).isEqualTo("AI_INVALID_PLAN");
     }
 
     @Test
@@ -121,6 +192,8 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
         bob.register("bob-planner-" + UUID.randomUUID() + "@example.com", "Bob");
         alice.addJourneyWithStop("Alice Italy", "Rome", "IT", "41.9028", "12.4964");
         bob.addJourneyWithStop("Bob Japan", "Tokyo", "JP", "35.6762", "139.6503");
+        alice.addBucketListPlace("Tokyo", "JP", "35.6762", "139.6503");
+        bob.addBucketListPlace("Rome", "IT", "41.9028", "12.4964");
 
         JsonNode alicePlan = objectMapper.readTree(
                 alice.post("/api/ai/trip-plan", "{\"message\":\"Plan from my history\"}").body());
@@ -129,6 +202,20 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
 
         assertThat(alicePlan.path("plan").toString()).contains("Rome", "Italy").doesNotContain("Tokyo", "Japan");
         assertThat(bobPlan.path("plan").toString()).contains("Tokyo", "Japan").doesNotContain("Rome", "Italy");
+
+        JsonNode aliceRefined = objectMapper.readTree(alice.post(
+                "/api/ai/trip-plan/refine",
+                refinementBody(alicePlan.path("plan"), "Keep only my own travel context")).body());
+        JsonNode bobRefined = objectMapper.readTree(bob.post(
+                "/api/ai/trip-plan/refine",
+                refinementBody(bobPlan.path("plan"), "Keep only my own travel context")).body());
+
+        assertThat(aliceRefined.path("plan").toString()).contains("Rome", "Italy").doesNotContain("Tokyo", "Japan");
+        assertThat(bobRefined.path("plan").toString()).contains("Tokyo", "Japan").doesNotContain("Rome", "Italy");
+        assertThat(aliceRefined.path("plan").path("sourcesUsed")).extracting(JsonNode::asText)
+                .containsExactly("Journeys", "Bucket List");
+        assertThat(bobRefined.path("plan").path("sourcesUsed")).extracting(JsonNode::asText)
+                .containsExactly("Journeys", "Bucket List");
     }
 
     private void addJourneyWithStop(
@@ -145,6 +232,10 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
         return postJson(
                 "/api/ai/trip-plan",
                 "{\"message\":" + objectMapper.writeValueAsString(message) + "}");
+    }
+
+    private String refinementBody(JsonNode plan, String message) throws Exception {
+        return "{\"plan\":" + plan + ",\"message\":" + objectMapper.writeValueAsString(message) + "}";
     }
 
     private HttpResponse<String> postJson(String path, String body) throws Exception {
@@ -170,36 +261,56 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
         @Override
         public synchronized AiModelResponse chat(AiModelRequest request) {
             lastRequest = request;
-            String prompt = request.messages().stream()
+            String firstPrompt = request.messages().stream()
                     .filter(message -> message.role() == AiMessage.Role.USER)
                     .findFirst()
                     .map(AiMessage::content)
                     .orElse("");
-            if (prompt.startsWith("invalid")) {
+            String lastPrompt = request.messages().stream()
+                    .filter(message -> message.role() == AiMessage.Role.USER)
+                    .reduce((left, right) -> right)
+                    .map(AiMessage::content)
+                    .orElse("");
+            boolean refinement = firstPrompt.startsWith("Current draft proposal");
+            if (firstPrompt.startsWith("invalid") || lastPrompt.contains("invalid refinement")) {
+                if (refinement && request.messages().stream().noneMatch(message -> message.role() == AiMessage.Role.TOOL)) {
+                    return AiModelResponse.toolCalls(
+                            new AiToolCall("journeys", "get_journeys", "{}"),
+                            new AiToolCall("bucket", "get_bucket_list", "{}"));
+                }
                 return AiModelResponse.finalAnswer("""
                         {"title":"Broken","summary":"Broken","durationDays":1,"startDate":null,"endDate":null,
                          "destinationSummary":"Nowhere","pace":"RELAXED","stops":[],
                          "considerations":[],"sourcesUsed":[]}
                         """);
             }
-            if (prompt.startsWith("tool-limit")) {
+            if (firstPrompt.startsWith("tool-limit")) {
                 return AiModelResponse.toolCalls(IntStream.rangeClosed(1, 13)
                         .mapToObj(index -> new AiToolCall("test-call-" + index, "get_travel_profile", "{}"))
                         .toArray(AiToolCall[]::new));
             }
-            if (prompt.startsWith("rate-limited")) {
+            if (firstPrompt.startsWith("rate-limited")) {
                 throw new AiProviderException(AiProviderException.Reason.RATE_LIMITED, "test rate limit");
             }
-            if (prompt.startsWith("provider-down")) {
+            if (firstPrompt.startsWith("provider-down")) {
                 throw new AiProviderException(AiProviderException.Reason.UNAVAILABLE, "test provider outage");
             }
-            return request.messages().stream()
-                    .filter(message -> message.role() == AiMessage.Role.TOOL)
-                    .reduce((left, right) -> right)
-                    .map(message -> message.content().contains("Tokyo")
-                            ? AiModelResponse.finalAnswer(plan("Tokyo", "JP", "Japan", "35.6762", "139.6503"))
-                            : AiModelResponse.finalAnswer(plan("Rome", "IT", "Italy", "41.9028", "12.4964")))
-                    .orElseGet(() -> AiModelResponse.toolCalls(new AiToolCall("journeys", "get_journeys", "{}")));
+            boolean hasToolResult = request.messages().stream()
+                    .anyMatch(message -> message.role() == AiMessage.Role.TOOL);
+            if (hasToolResult) {
+                boolean containsTokyo = request.messages().stream()
+                        .filter(message -> message.role() == AiMessage.Role.TOOL)
+                        .anyMatch(message -> message.content().contains("Tokyo"));
+                boolean refineTokyo = refinement && firstPrompt.contains("\"cityName\":\"Tokyo\"");
+                return (refinement ? refineTokyo : containsTokyo)
+                        ? AiModelResponse.finalAnswer(plan("Tokyo", "JP", "Japan", "35.6762", "139.6503"))
+                        : AiModelResponse.finalAnswer(plan("Rome", "IT", "Italy", "41.9028", "12.4964"));
+            }
+            return refinement
+                            ? AiModelResponse.toolCalls(
+                                    new AiToolCall("journeys", "get_journeys", "{}"),
+                                    new AiToolCall("bucket", "get_bucket_list", "{}"))
+                            : AiModelResponse.toolCalls(new AiToolCall("journeys", "get_journeys", "{}"));
         }
 
         AiModelRequest lastRequest() {
@@ -243,6 +354,14 @@ class TripPlanningApiIT extends AuthenticatedIntegrationTestSupport {
                     .path("id").asText();
             post(
                     "/api/trips/" + tripId + "/stops",
+                    "{\"countryCode\":\"" + countryCode + "\",\"cityName\":\"" + city
+                            + "\",\"latitude\":" + latitude + ",\"longitude\":" + longitude + "}");
+        }
+
+        private void addBucketListPlace(
+                String city, String countryCode, String latitude, String longitude) throws Exception {
+            post(
+                    "/api/bucket-list",
                     "{\"countryCode\":\"" + countryCode + "\",\"cityName\":\"" + city
                             + "\",\"latitude\":" + latitude + ",\"longitude\":" + longitude + "}");
         }

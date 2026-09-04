@@ -70,14 +70,17 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
-    void parsesFunctionCallsAndSendsToolResultsBackAsExplicitInputItems() {
+    void keepsStructuredRefinementContinuationAndFunctionOutputsInExplicitInputItems() {
         server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
-                .andExpect(jsonPath("$.input[1].type").value("reasoning"))
-                .andExpect(jsonPath("$.input[1].encrypted_content").value("opaque-reasoning"))
-                .andExpect(jsonPath("$.input[2].type").value("function_call"))
-                .andExpect(jsonPath("$.input[2].call_id").value("call-1"))
-                .andExpect(jsonPath("$.input[3].type").value("function_call_output"))
-                .andExpect(jsonPath("$.input[3].output").value("{\"status\":\"success\"}"))
+                .andExpect(jsonPath("$.instructions").value("refinement rules v1"))
+                .andExpect(jsonPath("$.input[0].content").value("Current draft"))
+                .andExpect(jsonPath("$.input[1].content").value("Make it calmer"))
+                .andExpect(jsonPath("$.input[2].type").value("reasoning"))
+                .andExpect(jsonPath("$.input[2].encrypted_content").value("opaque-reasoning"))
+                .andExpect(jsonPath("$.input[3].type").value("function_call"))
+                .andExpect(jsonPath("$.input[3].call_id").value("call-1"))
+                .andExpect(jsonPath("$.input[4].type").value("function_call_output"))
+                .andExpect(jsonPath("$.input[4].output").value("{\"status\":\"success\"}"))
                 .andExpect(jsonPath("$.text.format.type").value("json_schema"))
                 .andExpect(jsonPath("$.text.format.name").value("trip_plan"))
                 .andExpect(jsonPath("$.text.format.strict").value(true))
@@ -91,7 +94,9 @@ class OpenAiResponsesClientTest {
 
         var response = client.chat(new AiModelRequest(
                 List.of(
-                        AiMessage.user("Weather?"),
+                        AiMessage.system("refinement rules v1"),
+                        AiMessage.user("Current draft"),
+                        AiMessage.user("Make it calmer"),
                         AiMessage.assistantToolCalls(
                                 List.of(new AiToolCall("call-1", "get_profile", "{}")),
                                 """
@@ -108,10 +113,14 @@ class OpenAiResponsesClientTest {
     }
 
     @Test
-    void serializesTheExactResponsesApiStructuredOutputContractAndParsesItsJsonText() {
+    void serializesTheExactResponsesApiStructuredRefinementContractAndParsesItsJsonText() {
         server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
                 .andExpect(jsonPath("$.model").value("gpt-test"))
-                .andExpect(jsonPath("$.instructions").value("planner rules"))
+                .andExpect(jsonPath("$.instructions").value("refinement rules v1"))
+                .andExpect(jsonPath("$.input[0].role").value("user"))
+                .andExpect(jsonPath("$.input[0].content").value("Current draft: {\"title\":\"Italy\"}"))
+                .andExpect(jsonPath("$.input[1].role").value("user"))
+                .andExpect(jsonPath("$.input[1].content").value("Make it more relaxed"))
                 .andExpect(jsonPath("$.tools[0].name").value("search_places"))
                 .andExpect(jsonPath("$.tools[0].strict").value(true))
                 .andExpect(jsonPath("$.text.format.type").value("json_schema"))
@@ -130,7 +139,10 @@ class OpenAiResponsesClientTest {
                         MediaType.APPLICATION_JSON));
 
         AiModelResponse response = client.chat(new AiModelRequest(
-                List.of(AiMessage.system("planner rules"), AiMessage.user("Plan Italy")),
+                List.of(
+                        AiMessage.system("refinement rules v1"),
+                        AiMessage.user("Current draft: {\"title\":\"Italy\"}"),
+                        AiMessage.user("Make it more relaxed")),
                 List.of(new AiToolDefinition("search_places", "Resolve places", Map.of("type", "object"))),
                 structuredOutput()));
 
