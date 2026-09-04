@@ -56,6 +56,7 @@ vi.mock('./api/bucketList', () => ({
 vi.mock('./api/profile', () => ({ getTravelProfile: vi.fn() }))
 vi.mock('./api/places', () => ({ getPlaceDetails: vi.fn() }))
 vi.mock('./api/cities', () => ({ searchCities: vi.fn() }))
+vi.mock('./api/assistant', () => ({ askTravelAssistant: vi.fn() }))
 vi.mock('./features/map/MapView', () => ({
   MapView: ({ selectedTrip }: { selectedTrip: { name: string } | null }) => (
     <div data-testid="authenticated-map">{selectedTrip?.name ?? 'World map'}</div>
@@ -63,6 +64,7 @@ vi.mock('./features/map/MapView', () => ({
 }))
 
 import { getCurrentUser, login, logout, register } from './api/auth'
+import { askTravelAssistant } from './api/assistant'
 import { listBucketListItems } from './api/bucketList'
 import { getTravelProfile } from './api/profile'
 import { getMapOverview, getTrip, listTrips } from './api/trips'
@@ -145,6 +147,8 @@ describe('App authentication boundary', () => {
     expect(screen.queryByTestId('authenticated-map')).toBeNull()
     expect(listTrips).not.toHaveBeenCalled()
     expect(getTravelProfile).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Travel Assistant' })).toBeNull()
+    expect(askTravelAssistant).not.toHaveBeenCalled()
   })
 
   it('restores an authenticated session before loading personal data', async () => {
@@ -261,6 +265,40 @@ describe('App authentication boundary', () => {
     expect(profileView.querySelector('.profile-hero-metrics')?.textContent).toContain('Countries7')
     expect(profileView.textContent).toContain('bob@example.com')
     expect(profileView.textContent).not.toContain('alice@example.com')
+  })
+
+  it('does not render a late Alice assistant response after logout and Bob login', async () => {
+    let resolveAlice!: (value: { runId: string; answer: string; toolsUsed: string[] }) => void
+    vi.mocked(getCurrentUser).mockResolvedValue(alice)
+    vi.mocked(login).mockResolvedValue(bob)
+    vi.mocked(askTravelAssistant).mockReturnValueOnce(new Promise((done) => { resolveAlice = done }))
+    render(<App />)
+    await screen.findByTestId('authenticated-map')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Travel Assistant' }))
+    fireEvent.change(screen.getByLabelText('What would you like to explore?'), {
+      target: { value: 'Use Alice data' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask WanderMap' }))
+    await waitFor(() => expect(askTravelAssistant).toHaveBeenCalledWith('Use Alice data'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByTestId('authenticated-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Travel Assistant' }))
+
+    await act(async () => resolveAlice({
+      runId: 'alice-run',
+      answer: 'Alice private recommendation',
+      toolsUsed: ['get_journeys'],
+    }))
+
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.queryByText('Alice private recommendation')).toBeNull()
+    expect(screen.getByLabelText('What would you like to explore?')).toBeTruthy()
   })
 
   it.each([

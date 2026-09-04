@@ -11,6 +11,7 @@ WanderMap is a visual travel journal for collecting trips and seeing their itine
 - reorder and remove itinerary stops;
 - add stop dates, notes, and ordered JPEG, PNG, or WebP photo attachments;
 - open a dedicated editorial Travel Profile with rich statistics, deterministic highlights, and achievement progress;
+- ask a bounded, tool-enabled Travel Assistant for recommendations grounded in the current user's profile, Journeys, Bucket List, and short-term weather;
 - keep the compact World map stats bar visible without turning the map into a dashboard;
 - save canonical cities to a separate Want to visit list and open them through the existing Place Details flow;
 - preserve all travel data in PostgreSQL across browser refreshes;
@@ -56,6 +57,8 @@ Open the Vite URL printed in the terminal (normally `http://localhost:5173`). It
 
 To point the backend at another database, set `WANDERMAP_DB_URL`, `WANDERMAP_DB_USERNAME`, and `WANDERMAP_DB_PASSWORD`.
 
+The WanderMap 0.5 Travel Assistant is disabled by default, so normal local development and CI do not need an AI provider key. To enable it locally, set `WANDERMAP_AI_ENABLED=true` and supply `OPENAI_API_KEY` through the environment; never place a real key in `.env.example` or source control. `WANDERMAP_AI_MODEL` selects the OpenAI model (default `gpt-5-mini`). `WANDERMAP_AI_MAX_TOOL_ITERATIONS` bounds the explicit model/tool loop (default `6`), `WANDERMAP_AI_MAX_TOOL_CALLS` caps total tool calls per request (default `12`), `WANDERMAP_AI_MAX_TOOL_RESULT_CHARACTERS` bounds cumulative serialized tool data (default `100000`), and `WANDERMAP_AI_MAX_OUTPUT_TOKENS` limits each provider response (default `4000`). The application uses the OpenAI Responses API through a provider-neutral `AiModelClient`; request storage is disabled, and opaque encrypted reasoning continuity is held only in memory for the current request. Open-Meteo powers the key-free, current short-term weather tool, with its base URL and timeouts available through the `WANDERMAP_WEATHER_*` properties.
+
 Authentication uses a short-lived signed JWT in the HttpOnly `WANDERMAP_SESSION` cookie. The explicit `local` Spring profile permits a fresh random signing key when `WANDERMAP_JWT_SECRET` is omitted and sets the cookie's `Secure` flag to `false` for localhost HTTP; local sessions therefore intentionally stop working after a backend restart. In the default/non-local configuration, startup fails unless `WANDERMAP_JWT_SECRET` is valid Base64 containing at least 32 decoded random bytes, and session cookies are `Secure` by default. Production deployments require HTTPS and must provide the signing secret outside the repository; `WANDERMAP_AUTH_COOKIE_SECURE` may be configured explicitly but should remain `true`. `WANDERMAP_AUTH_TOKEN_TTL` controls the token lifetime and defaults to `12h`. Registration rejects passwords exceeding BCrypt's 72 UTF-8 byte limit instead of silently truncating them.
 
 The SPA and API are same-origin through the Vite proxy in development. The session cookie is `HttpOnly`, `SameSite=Strict`, scoped to `/api`, and never exposed to JavaScript. Spring Security CSRF protection issues a separate readable `XSRF-TOKEN` cookie; the centralized frontend client sends its value as `X-XSRF-TOKEN` for unsafe requests. No access token or password is stored in `localStorage`.
@@ -91,6 +94,7 @@ Create or restore a session through the frontend for normal use. The compact aut
 - `POST /api/auth/logout` — expire the session cookie (`204`);
 - `GET /api/me` — return the authenticated user;
 - `GET /api/auth/csrf` — initialize the SPA CSRF cookie/token.
+- `POST /api/ai/travel-assistant` — ask the authenticated, tool-enabled Travel Assistant (`message` is required and limited to 4000 characters).
 
 All personal APIs, including Trips, Stops, photos, Map Overview, Travel Profile, Place Details, Bucket List, city search, and countries, require authentication. `/api/health` and the auth bootstrap endpoints remain public. Unsafe requests also require the `X-XSRF-TOKEN` cookie value in the `X-XSRF-TOKEN` header. A command-line client should first call `/api/auth/csrf` with a cookie jar, then preserve that jar for registration/login and subsequent requests. The existing Travel Core endpoint paths and payloads remain stable; ownership is never accepted from the client:
 
@@ -111,6 +115,10 @@ curl http://localhost:8080/api/travel-profile
 curl http://localhost:8080/api/bucket-list
 curl http://localhost:8080/api/countries
 curl http://localhost:8080/api/health
+
+curl -X POST http://localhost:8080/api/ai/travel-assistant \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Which place from my bucket list should I consider next?"}'
 
 curl -X POST http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos \
   -F "file=@memory.jpg"
@@ -139,6 +147,8 @@ WanderMap 0.4 Phase 3 achievements are derived read-model data, not persisted st
 The map remains the hero in World View: its compact floating bar still shows Countries, Places, Journeys, Travel days, and Memories without permanent profile cards over the atlas. The full Profile View opens from the authenticated user area as a separate responsive presentation, keeps the live map mounted underneath, and returns to the same World/Journey state. It adds identity, hero metrics, highlights, achievements, and secondary counters without changing map behavior. Bucket List changes never affect historical profile metrics.
 
 Bucket List persistence is intentionally separate from travel history. Each Bucket List item references one shared canonical `City`, and a database uniqueness constraint permits one item per `(userId, cityId)`; different users can save the same City while display names are never used as identity. A city may be visited-only, bucket-only, or both. Adding a TripStop never auto-removes its Bucket List item, and removing a Bucket List item never deletes its City or TripStops. `GET /api/bucket-list` derives `visited` from the current user's TripStops without per-item queries. Bucket-only changes do not contribute to Personal Travel Profile counts. Phase 1 deliberately has no note/PATCH field and no automatic first-stop handoff into New Journey; a future planning bridge should prefill the existing city-selection input and keep Journey creation/add-stop failure semantics explicit.
+
+WanderMap 0.5 adds one Travel Assistant rather than a general AI framework. Its application-owned loop supplies four explicit tools: `get_travel_profile`, `get_journeys`, `get_bucket_list`, and coordinate-based `get_weather`. Personal tools accept no user identifier and call existing user-scoped application services, so the model cannot choose an account. Tool arguments and provider responses are validated, unknown tools and tool failures become structured results, and configurable iteration, total tool-call, and output-token ceilings bound each request. Structured logs record run IDs, iterations, tool names, durations, and outcomes without prompts, secrets, cookies, or returned personal data. There is no direct repository access, generic URL-fetch tool, persistent chat history, RAG, embeddings, or multi-agent orchestration. The architecture decision is recorded in [`docs/adr/0001-first-ai-agent-architecture.md`](docs/adr/0001-first-ai-agent-architecture.md).
 
 ## Identity and ownership
 
@@ -182,6 +192,10 @@ src/main/java/.../identity/
   application/     authentication use cases and CurrentUserProvider boundary
   domain/          UserAccount
   security/        JWT cookie creation and Spring Security configuration
+src/main/java/.../ai/
+  api/             authenticated Travel Assistant endpoint and safe error mapping
+  application/     explicit bounded agent loop, provider-neutral model/weather ports, and tools
+  infrastructure/  OpenAI Responses API and Open-Meteo adapters
 frontend/
   src/api/         typed HTTP client with credentials, CSRF, and centralized 401 handling
   src/components/  auth, trip, itinerary, place, and memory UI

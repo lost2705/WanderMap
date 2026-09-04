@@ -57,6 +57,11 @@ public class TripService {
     }
 
     @Transactional(readOnly = true)
+    public List<Trip> listTripsWithCities() {
+        return tripRepository.findAllWithStopsAndCitiesOrderByNameAscIdAscForUser(currentUser().getId());
+    }
+
+    @Transactional(readOnly = true)
     public TripMapOverview getMapOverview() {
         UUID userId = currentUser().getId();
         return new TripMapOverview(

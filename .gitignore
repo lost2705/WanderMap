@@ -3,6 +3,7 @@ target/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+.pnpm-store/
 data/
 .idea/
 *.iml
