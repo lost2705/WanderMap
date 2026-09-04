@@ -19,6 +19,10 @@ vi.mock('./api/cities', () => ({
   searchCities: vi.fn(),
 }))
 
+vi.mock('./api/assistant', () => ({
+  askTravelAssistant: vi.fn(),
+}))
+
 vi.mock('./api/bucketList', () => ({
   addBucketListItem: vi.fn(),
   deleteBucketListItem: vi.fn(),
@@ -110,6 +114,7 @@ import {
 } from './api/trips'
 import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { searchCities } from './api/cities'
+import { askTravelAssistant } from './api/assistant'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
 import { AuthenticatedApp as App } from './App'
@@ -335,6 +340,11 @@ beforeEach(() => {
   vi.mocked(getTrip).mockImplementation((tripId) => Promise.resolve(tripId === 'italy' ? italyTrip : japanTrip))
   vi.mocked(getPlaceDetails).mockImplementation((cityId) => Promise.resolve(cityId === 'city-rome' ? romePlace : tokyoPlace))
   vi.mocked(searchCities).mockResolvedValue([])
+  vi.mocked(askTravelAssistant).mockResolvedValue({
+    runId: 'assistant-run',
+    answer: 'Consider Porto next.',
+    toolsUsed: ['get_travel_profile'],
+  })
 })
 
 afterEach(() => {
@@ -1603,6 +1613,54 @@ describe('App Travel Profile navigation', () => {
 
     await waitFor(() => expect(document.activeElement)
       .toBe(screen.getByRole('button', { name: 'Open journey navigation' })))
+  })
+})
+
+describe('App Travel Assistant navigation', () => {
+  const alice = { id: 'alice', displayName: 'Alice Atlas', email: 'alice@example.com' }
+  const bob = { id: 'bob', displayName: 'Bob Atlas', email: 'bob@example.com' }
+
+  it('opens the assistant while preserving the selected Journey and single map instance', async () => {
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    await waitFor(() => expectMapState('italy', 'IT', 'italy'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Travel Assistant' }))
+
+    const assistant = screen.getByRole('region', { name: 'Travel Assistant' })
+    expect(within(assistant).getByRole('heading', { name: 'Travel Assistant' })).toBeTruthy()
+    expect(document.activeElement).toBe(within(assistant).getByRole('button', { name: 'Back to map' }))
+    expect(document.querySelector('#journey-navigation')?.hasAttribute('inert')).toBe(true)
+    expect(document.querySelector('.content-area')?.hasAttribute('inert')).toBe(true)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+
+    fireEvent.click(within(assistant).getByRole('button', { name: 'Back to map' }))
+
+    expect(screen.queryByRole('region', { name: 'Travel Assistant' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('italy', 'IT', 'italy')
+    await waitFor(() => expect(document.activeElement)
+      .toBe(screen.getByRole('button', { name: 'Travel Assistant' })))
+  })
+
+  it('clears browser-session assistant state when the authenticated user changes', async () => {
+    const { rerender } = render(<App key={alice.id} currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Travel Assistant' }))
+    fireEvent.change(screen.getByLabelText('What would you like to explore?'), {
+      target: { value: 'Use Alice data' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Ask WanderMap' }))
+    await screen.findByText('Consider Porto next.')
+
+    rerender(<App key={bob.id} currentUser={bob} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Travel Assistant' }))
+
+    expect(screen.queryByText('Consider Porto next.')).toBeNull()
+    expect((screen.getByLabelText('What would you like to explore?') as HTMLTextAreaElement).value).toBe('')
   })
 })
 

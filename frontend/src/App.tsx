@@ -34,6 +34,7 @@ import { MemoryView } from './components/MemoryView'
 import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
+import { TravelAssistantView } from './components/TravelAssistantView'
 import { TravelProfileView } from './components/TravelProfileView'
 import { WorldPlaceNavigation } from './components/WorldPlaceNavigation'
 import { WorldTravelStatsBar } from './components/WorldTravelStatsBar'
@@ -56,6 +57,7 @@ import type {
 } from './types/travel'
 
 type TripFormMode = 'create' | 'edit' | null
+type FullScreenView = 'profile' | 'assistant' | null
 
 interface AppProps {
   initialTheme?: Theme
@@ -213,12 +215,14 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   const [formMode, setFormMode] = useState<TripFormMode>(null)
   const [error, setError] = useState<string | null>(null)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
-  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [fullScreenView, setFullScreenView] = useState<FullScreenView>(null)
   const navigationToggleRef = useRef<HTMLButtonElement>(null)
   const navigationCloseRef = useRef<HTMLButtonElement>(null)
   const placeDetailsCloseRef = useRef<HTMLButtonElement>(null)
   const profileTriggerRef = useRef<HTMLButtonElement>(null)
   const profileBackRef = useRef<HTMLButtonElement>(null)
+  const assistantTriggerRef = useRef<HTMLButtonElement>(null)
+  const assistantBackRef = useRef<HTMLButtonElement>(null)
   const applicationLoadVersionRef = useRef(0)
   const placeNavigationTriggerRef = useRef<HTMLElement | null>(null)
   const focusOpenedPlaceRef = useRef(false)
@@ -255,10 +259,12 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   }, [])
 
   useEffect(() => {
-    if (isProfileOpen) {
+    if (fullScreenView === 'profile') {
       profileBackRef.current?.focus()
+    } else if (fullScreenView === 'assistant') {
+      assistantBackRef.current?.focus()
     }
-  }, [isProfileOpen])
+  }, [fullScreenView])
 
   useEffect(() => {
     if (!isNavigationOpen) {
@@ -871,16 +877,29 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
 
   function handleOpenProfile() {
     setIsNavigationOpen(false)
-    setIsProfileOpen(true)
+    setFullScreenView('profile')
   }
 
   function handleCloseProfile() {
-    setIsProfileOpen(false)
+    closeFullScreenView(profileTriggerRef)
+  }
+
+  function handleOpenAssistant() {
+    setIsNavigationOpen(false)
+    setFullScreenView('assistant')
+  }
+
+  function handleCloseAssistant() {
+    closeFullScreenView(assistantTriggerRef)
+  }
+
+  function closeFullScreenView(triggerRef: { current: HTMLButtonElement | null }) {
+    setFullScreenView(null)
     window.requestAnimationFrame(() => {
       if (window.matchMedia?.(MOBILE_NAVIGATION_QUERY).matches) {
         navigationToggleRef.current?.focus()
       } else {
-        profileTriggerRef.current?.focus()
+        triggerRef.current?.focus()
       }
     })
   }
@@ -902,7 +921,7 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
         aria-label="Journey navigation"
         className={`sidebar${isNavigationOpen ? ' is-open' : ''}`}
         id="journey-navigation"
-        inert={isProfileOpen}
+        inert={fullScreenView !== null}
       >
         <div className="sidebar-brand-row">
           <a className="brand" href="/" aria-label="WanderMap home">
@@ -1003,6 +1022,14 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
             <span className="account-actions">
               <button
                 className="button button-quiet"
+                ref={assistantTriggerRef}
+                type="button"
+                onClick={handleOpenAssistant}
+              >
+                Travel Assistant
+              </button>
+              <button
+                className="button button-quiet"
                 ref={profileTriggerRef}
                 type="button"
                 onClick={handleOpenProfile}
@@ -1019,7 +1046,7 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
       </aside>
       <div
         className={`content-area${showWorldTravelStats ? ' has-world-stats' : ''}`}
-        inert={isProfileOpen}
+        inert={fullScreenView !== null}
         ref={contentAreaRef}
       >
         {atlasView.kind !== 'memory' ? (
@@ -1100,7 +1127,7 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
           />
         ) : null}
       </div>
-      {isProfileOpen && currentUser ? (
+      {fullScreenView === 'profile' && currentUser ? (
         <TravelProfileView
           backButtonRef={profileBackRef}
           error={travelProfileLoadError}
@@ -1110,6 +1137,9 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
           onBack={handleCloseProfile}
           onRetry={() => void refreshTravelProfile()}
         />
+      ) : null}
+      {fullScreenView === 'assistant' && currentUser ? (
+        <TravelAssistantView backButtonRef={assistantBackRef} onBack={handleCloseAssistant} />
       ) : null}
     </main>
   )

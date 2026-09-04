@@ -38,6 +38,23 @@ wandermap:
     photos:
       root: ${WANDERMAP_PHOTOS_ROOT:./data/photos}
       max-size: ${WANDERMAP_PHOTOS_MAX_SIZE:10MB}
+  ai:
+    enabled: ${WANDERMAP_AI_ENABLED:false}
+    provider: ${WANDERMAP_AI_PROVIDER:openai}
+    model: ${WANDERMAP_AI_MODEL:gpt-5-mini}
+    max-tool-iterations: ${WANDERMAP_AI_MAX_TOOL_ITERATIONS:6}
+    max-tool-calls: ${WANDERMAP_AI_MAX_TOOL_CALLS:12}
+    max-tool-result-characters: ${WANDERMAP_AI_MAX_TOOL_RESULT_CHARACTERS:100000}
+    max-output-tokens: ${WANDERMAP_AI_MAX_OUTPUT_TOKENS:4000}
+    connect-timeout: ${WANDERMAP_AI_CONNECT_TIMEOUT:3s}
+    read-timeout: ${WANDERMAP_AI_READ_TIMEOUT:45s}
+    openai:
+      base-url: ${WANDERMAP_OPENAI_BASE_URL:https://api.openai.com}
+      api-key: ${OPENAI_API_KEY:}
+    weather:
+      base-url: ${WANDERMAP_WEATHER_BASE_URL:https://api.open-meteo.com}
+      connect-timeout: ${WANDERMAP_WEATHER_CONNECT_TIMEOUT:2s}
+      read-timeout: ${WANDERMAP_WEATHER_READ_TIMEOUT:5s}
 
 ---
 spring:

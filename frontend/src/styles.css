@@ -545,6 +545,177 @@ textarea:focus-visible {
   color: var(--color-danger);
 }
 
+.travel-assistant-view {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 80% 12%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 30rem),
+    radial-gradient(circle at 12% 88%, color-mix(in srgb, var(--color-sage) 10%, transparent), transparent 32rem),
+    var(--color-canvas);
+  color: var(--color-text-primary);
+}
+
+.travel-assistant-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior-y: contain;
+}
+
+.travel-assistant-page {
+  width: min(100%, 64rem);
+  margin-inline: auto;
+  padding: clamp(2rem, 6vw, 5.5rem) clamp(1rem, 4vw, 3.5rem) 5rem;
+}
+
+.travel-assistant-header {
+  max-width: 48rem;
+}
+
+.travel-assistant-header h1 {
+  margin: 0.38rem 0 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(3rem, 8vw, 6.25rem);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+
+.travel-assistant-header > p:last-child {
+  max-width: 38rem;
+  margin: 1.25rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: clamp(0.92rem, 1.4vw, 1.08rem);
+  line-height: 1.6;
+}
+
+.assistant-composer,
+.assistant-answer {
+  display: grid;
+  max-width: 52rem;
+  gap: 1rem;
+  margin-top: clamp(2.5rem, 6vw, 4.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  padding: clamp(1.1rem, 3vw, 2rem);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  box-shadow: var(--shadow-raised);
+}
+
+.assistant-composer label {
+  font-family: var(--font-editorial);
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.assistant-composer textarea {
+  width: 100%;
+  min-height: 9rem;
+  resize: vertical;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-medium);
+  padding: 1rem;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.assistant-composer textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  outline-offset: 2px;
+  border-color: var(--color-accent);
+}
+
+.assistant-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.assistant-starters button {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.55rem 0.75rem;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.assistant-starters button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-strong);
+}
+
+.assistant-send {
+  justify-self: start;
+  min-width: 10rem;
+}
+
+.assistant-error {
+  margin: 0;
+  border: 1px solid var(--color-error-border);
+  border-radius: var(--radius-medium);
+  padding: 0.8rem;
+  background: var(--color-error-surface);
+  color: var(--color-danger);
+}
+
+.assistant-answer h2 {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+
+.assistant-answer-text {
+  margin: 0.5rem 0;
+  color: var(--color-text-primary);
+  font-size: 1rem;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.assistant-sources {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+}
+
+.assistant-sources strong {
+  color: var(--color-text-primary);
+}
+
+.assistant-sources ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant-sources li {
+  border-radius: 999px;
+  padding: 0.35rem 0.58rem;
+  background: color-mix(in srgb, var(--color-accent) 11%, transparent);
+  color: var(--color-accent-strong);
+}
+
+.assistant-sources p {
+  margin: 0.65rem 0 0;
+}
+
 .achievement-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
