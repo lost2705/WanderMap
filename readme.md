@@ -59,6 +59,8 @@ To point the backend at another database, set `WANDERMAP_DB_URL`, `WANDERMAP_DB_
 
 The WanderMap 0.5 Travel Assistant is disabled by default, so normal local development and CI do not need an AI provider key. To enable it locally, set `WANDERMAP_AI_ENABLED=true` and supply `OPENAI_API_KEY` through the environment; never place a real key in `.env.example` or source control. `WANDERMAP_AI_MODEL` selects the OpenAI model (default `gpt-5-mini`). `WANDERMAP_AI_MAX_TOOL_ITERATIONS` bounds the explicit model/tool loop (default `6`), `WANDERMAP_AI_MAX_TOOL_CALLS` caps total tool calls per request (default `12`), `WANDERMAP_AI_MAX_TOOL_RESULT_CHARACTERS` bounds cumulative serialized tool data (default `100000`), and `WANDERMAP_AI_MAX_OUTPUT_TOKENS` limits each provider response (default `4000`). The application uses the OpenAI Responses API through a provider-neutral `AiModelClient`; request storage is disabled, and opaque encrypted reasoning continuity is held only in memory for the current request. Open-Meteo powers the key-free, current short-term weather tool, with its base URL and timeouts available through the `WANDERMAP_WEATHER_*` properties.
 
+WanderMap 0.6 Phase 1 adds a read-only Trip Planner on the same bounded `TravelAgent` loop. Natural-language requests produce a schema-constrained, application-owned `TripPlanDraft`, which the backend deserializes and validates before returning it to the SPA. The planner can use the authenticated user's profile, Journeys, Bucket List, short-term weather, and a provider-neutral place-search tool backed by the existing city-search service. Place search resolves names and coordinates; it is not treated as a recommendation ranking. Drafts are not persisted and cannot create or modify Journeys. This phase deliberately has no bookings, live prices, transport schedules, exact long-range weather, cost calculations, or automatic application of a draft. The decision is recorded in [`docs/adr/0002-structured-trip-planning.md`](docs/adr/0002-structured-trip-planning.md).
+
 Authentication uses a short-lived signed JWT in the HttpOnly `WANDERMAP_SESSION` cookie. The explicit `local` Spring profile permits a fresh random signing key when `WANDERMAP_JWT_SECRET` is omitted and sets the cookie's `Secure` flag to `false` for localhost HTTP; local sessions therefore intentionally stop working after a backend restart. In the default/non-local configuration, startup fails unless `WANDERMAP_JWT_SECRET` is valid Base64 containing at least 32 decoded random bytes, and session cookies are `Secure` by default. Production deployments require HTTPS and must provide the signing secret outside the repository; `WANDERMAP_AUTH_COOKIE_SECURE` may be configured explicitly but should remain `true`. `WANDERMAP_AUTH_TOKEN_TTL` controls the token lifetime and defaults to `12h`. Registration rejects passwords exceeding BCrypt's 72 UTF-8 byte limit instead of silently truncating them.
 
 The SPA and API are same-origin through the Vite proxy in development. The session cookie is `HttpOnly`, `SameSite=Strict`, scoped to `/api`, and never exposed to JavaScript. Spring Security CSRF protection issues a separate readable `XSRF-TOKEN` cookie; the centralized frontend client sends its value as `X-XSRF-TOKEN` for unsafe requests. No access token or password is stored in `localStorage`.
@@ -95,6 +97,7 @@ Create or restore a session through the frontend for normal use. The compact aut
 - `GET /api/me` — return the authenticated user;
 - `GET /api/auth/csrf` — initialize the SPA CSRF cookie/token.
 - `POST /api/ai/travel-assistant` — ask the authenticated, tool-enabled Travel Assistant (`message` is required and limited to 4000 characters).
+- `POST /api/ai/trip-plan` — create a validated, read-only structured trip draft from a natural-language request (same message limit).
 
 All personal APIs, including Trips, Stops, photos, Map Overview, Travel Profile, Place Details, Bucket List, city search, and countries, require authentication. `/api/health` and the auth bootstrap endpoints remain public. Unsafe requests also require the `X-XSRF-TOKEN` cookie value in the `X-XSRF-TOKEN` header. A command-line client should first call `/api/auth/csrf` with a cookie jar, then preserve that jar for registration/login and subsequent requests. The existing Travel Core endpoint paths and payloads remain stable; ownership is never accepted from the client:
 
@@ -119,6 +122,10 @@ curl http://localhost:8080/api/health
 curl -X POST http://localhost:8080/api/ai/travel-assistant \
   -H "Content-Type: application/json" \
   -d '{"message":"Which place from my bucket list should I consider next?"}'
+
+curl -X POST http://localhost:8080/api/ai/trip-plan \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Plan 7 relaxed days in Italy focused on food and architecture."}'
 
 curl -X POST http://localhost:8080/api/trips/{tripId}/stops/{stopId}/photos \
   -F "file=@memory.jpg"
@@ -149,6 +156,8 @@ The map remains the hero in World View: its compact floating bar still shows Cou
 Bucket List persistence is intentionally separate from travel history. Each Bucket List item references one shared canonical `City`, and a database uniqueness constraint permits one item per `(userId, cityId)`; different users can save the same City while display names are never used as identity. A city may be visited-only, bucket-only, or both. Adding a TripStop never auto-removes its Bucket List item, and removing a Bucket List item never deletes its City or TripStops. `GET /api/bucket-list` derives `visited` from the current user's TripStops without per-item queries. Bucket-only changes do not contribute to Personal Travel Profile counts. Phase 1 deliberately has no note/PATCH field and no automatic first-stop handoff into New Journey; a future planning bridge should prefill the existing city-selection input and keep Journey creation/add-stop failure semantics explicit.
 
 WanderMap 0.5 adds one Travel Assistant rather than a general AI framework. Its application-owned loop supplies four explicit tools: `get_travel_profile`, `get_journeys`, `get_bucket_list`, and coordinate-based `get_weather`. Personal tools accept no user identifier and call existing user-scoped application services, so the model cannot choose an account. Tool arguments and provider responses are validated, unknown tools and tool failures become structured results, and configurable iteration, total tool-call, and output-token ceilings bound each request. Structured logs record run IDs, iterations, tool names, durations, and outcomes without prompts, secrets, cookies, or returned personal data. There is no direct repository access, generic URL-fetch tool, persistent chat history, RAG, embeddings, or multi-agent orchestration. The architecture decision is recorded in [`docs/adr/0001-first-ai-agent-architecture.md`](docs/adr/0001-first-ai-agent-architecture.md).
+
+The 0.6 planner requests strict JSON Schema output through the existing provider-neutral model port and adds only one tool, `search_places`. Its `daysAtStop` values must sum to `durationDays`; concrete start/end dates use inclusive calendar-day semantics and must agree with that duration, while unspecified dates remain null. Plans are limited to 1–60 days, 1–12 resolved unique places, at most 8 activities per stop, and at most 10 considerations. Country codes, coordinates, strings, list sizes, dates, personal-history flags, and place-resolution evidence are validated application-side in addition to the provider schema. Invalid model output becomes the controlled `AI_INVALID_PLAN` response and is never exposed as raw JSON. Exact future weather remains unavailable beyond the current forecast horizon.
 
 ## Identity and ownership
 
@@ -193,8 +202,8 @@ src/main/java/.../identity/
   domain/          UserAccount
   security/        JWT cookie creation and Spring Security configuration
 src/main/java/.../ai/
-  api/             authenticated Travel Assistant endpoint and safe error mapping
-  application/     explicit bounded agent loop, provider-neutral model/weather ports, and tools
+  api/             authenticated Assistant/Trip Planner endpoints and safe error mapping
+  application/     one bounded agent loop, structured planning validation, provider-neutral ports, and tools
   infrastructure/  OpenAI Responses API and Open-Meteo adapters
 frontend/
   src/api/         typed HTTP client with credentials, CSRF, and centralized 401 handling

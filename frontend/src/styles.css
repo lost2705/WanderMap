@@ -716,6 +716,174 @@ textarea:focus-visible {
   margin: 0.65rem 0 0;
 }
 
+.trip-planner-page {
+  width: min(100%, 70rem);
+}
+
+.trip-plan-result {
+  display: grid;
+  gap: clamp(2rem, 5vw, 4rem);
+}
+
+.trip-plan-heading {
+  max-width: 54rem;
+}
+
+.trip-plan-heading h1 {
+  margin: 0.38rem 0 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(3rem, 8vw, 6rem);
+  font-weight: 500;
+  letter-spacing: -0.06em;
+  line-height: 0.92;
+  overflow-wrap: anywhere;
+}
+
+.trip-plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin: 1.15rem 0 0;
+  color: var(--color-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.trip-plan-meta span + span {
+  position: relative;
+}
+
+.trip-plan-meta span + span::before {
+  position: absolute;
+  left: -0.7rem;
+  color: var(--color-sand);
+  content: '·';
+}
+
+.trip-plan-summary {
+  max-width: 46rem;
+  margin: 1.2rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.trip-plan-stops {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-plan-stops > li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  padding: clamp(1rem, 3vw, 1.6rem);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.trip-plan-stop-index {
+  display: grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-family: var(--font-editorial);
+  font-weight: 700;
+}
+
+.trip-plan-stop-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.9rem;
+}
+
+.trip-plan-stop-copy > header {
+  display: flex;
+  min-width: 0;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.trip-plan-stop-copy h2,
+.trip-plan-considerations h2 {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(1.6rem, 4vw, 2.45rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.trip-plan-stop-copy header p,
+.trip-plan-stop-copy > p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.trip-plan-stop-copy header p {
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+}
+
+.trip-plan-stop-copy header > strong {
+  flex: 0 0 auto;
+  color: var(--color-accent-strong);
+  font-size: 0.78rem;
+}
+
+.trip-plan-stop-copy > ul,
+.trip-plan-considerations ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.trip-plan-stop-copy li::marker,
+.trip-plan-considerations li::marker {
+  color: var(--color-accent);
+}
+
+.trip-plan-place-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.trip-plan-place-flags span {
+  border-radius: 999px;
+  padding: 0.34rem 0.58rem;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.trip-plan-considerations {
+  display: grid;
+  gap: 1rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 2rem;
+}
+
+.trip-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
 .achievement-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3171,6 +3339,17 @@ textarea:focus {
 
   .profile-secondary-metrics {
     gap: 0;
+  }
+
+  .trip-plan-stops > li {
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .trip-plan-stop-copy > header {
+    align-items: start;
+    flex-direction: column;
+    gap: 0.45rem;
   }
 }
 

@@ -11,7 +11,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import io.github.lost2705.wandermap.ai.application.AiMessage;
 import io.github.lost2705.wandermap.ai.application.AiModelRequest;
+import io.github.lost2705.wandermap.ai.application.AiModelResponse;
 import io.github.lost2705.wandermap.ai.application.AiProviderException;
+import io.github.lost2705.wandermap.ai.application.AiStructuredOutputDefinition;
 import io.github.lost2705.wandermap.ai.application.AiToolCall;
 import io.github.lost2705.wandermap.ai.application.AiToolDefinition;
 import java.util.List;
@@ -76,6 +78,10 @@ class OpenAiResponsesClientTest {
                 .andExpect(jsonPath("$.input[2].call_id").value("call-1"))
                 .andExpect(jsonPath("$.input[3].type").value("function_call_output"))
                 .andExpect(jsonPath("$.input[3].output").value("{\"status\":\"success\"}"))
+                .andExpect(jsonPath("$.text.format.type").value("json_schema"))
+                .andExpect(jsonPath("$.text.format.name").value("trip_plan"))
+                .andExpect(jsonPath("$.text.format.strict").value(true))
+                .andExpect(jsonPath("$.text.format.schema.additionalProperties").value(false))
                 .andRespond(withSuccess(
                         """
                         {"status":"completed","output":[{"type":"function_call","call_id":"call-2",
@@ -93,10 +99,42 @@ class OpenAiResponsesClientTest {
                                  {"type":"function_call","call_id":"call-1","name":"get_profile","arguments":"{}"}]
                                 """),
                         AiMessage.toolResult("call-1", "{\"status\":\"success\"}")),
-                List.of()));
+                List.of(),
+                structuredOutput()));
 
         assertThat(response.toolCalls()).containsExactly(new AiToolCall(
                 "call-2", "get_weather", "{\"latitude\":41.1,\"longitude\":-8.6}"));
+        server.verify();
+    }
+
+    @Test
+    void serializesTheExactResponsesApiStructuredOutputContractAndParsesItsJsonText() {
+        server.expect(once(), requestTo("https://api.openai.test/v1/responses"))
+                .andExpect(jsonPath("$.model").value("gpt-test"))
+                .andExpect(jsonPath("$.instructions").value("planner rules"))
+                .andExpect(jsonPath("$.tools[0].name").value("search_places"))
+                .andExpect(jsonPath("$.tools[0].strict").value(true))
+                .andExpect(jsonPath("$.text.format.type").value("json_schema"))
+                .andExpect(jsonPath("$.text.format.name").value("trip_plan"))
+                .andExpect(jsonPath("$.text.format.description").value("Trip plan"))
+                .andExpect(jsonPath("$.text.format.strict").value(true))
+                .andExpect(jsonPath("$.text.format.schema.type").value("object"))
+                .andExpect(jsonPath("$.max_output_tokens").value(1234))
+                .andExpect(jsonPath("$.store").value(false))
+                .andRespond(withSuccess(
+                        """
+                        {"status":"completed","output":[{"type":"message","role":"assistant","content":[
+                          {"type":"output_text","text":"{\\\"title\\\":\\\"Italy\\\"}"}
+                        ]}]}
+                        """,
+                        MediaType.APPLICATION_JSON));
+
+        AiModelResponse response = client.chat(new AiModelRequest(
+                List.of(AiMessage.system("planner rules"), AiMessage.user("Plan Italy")),
+                List.of(new AiToolDefinition("search_places", "Resolve places", Map.of("type", "object"))),
+                structuredOutput()));
+
+        assertThat(response.finalText()).isEqualTo("{\"title\":\"Italy\"}");
         server.verify();
     }
 
@@ -136,5 +174,16 @@ class OpenAiResponsesClientTest {
                         exception -> assertThat(exception.getReason())
                                 .isEqualTo(AiProviderException.Reason.MALFORMED_RESPONSE));
         server.verify();
+    }
+
+    private static AiStructuredOutputDefinition structuredOutput() {
+        return new AiStructuredOutputDefinition(
+                "trip_plan",
+                "Trip plan",
+                Map.of(
+                        "type", "object",
+                        "properties", Map.of("title", Map.of("type", "string")),
+                        "required", List.of("title"),
+                        "additionalProperties", false));
     }
 }

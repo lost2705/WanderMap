@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from './api/client'
 import type { CurrentUser } from './api/auth'
+import type { TripPlanningResponse } from './api/planner'
 import type { TravelProfile, TripMapOverview, TripSummary } from './types/travel'
 
 const clientState = vi.hoisted(() => ({
@@ -57,6 +58,7 @@ vi.mock('./api/profile', () => ({ getTravelProfile: vi.fn() }))
 vi.mock('./api/places', () => ({ getPlaceDetails: vi.fn() }))
 vi.mock('./api/cities', () => ({ searchCities: vi.fn() }))
 vi.mock('./api/assistant', () => ({ askTravelAssistant: vi.fn() }))
+vi.mock('./api/planner', () => ({ createTripPlan: vi.fn() }))
 vi.mock('./features/map/MapView', () => ({
   MapView: ({ selectedTrip }: { selectedTrip: { name: string } | null }) => (
     <div data-testid="authenticated-map">{selectedTrip?.name ?? 'World map'}</div>
@@ -66,6 +68,7 @@ vi.mock('./features/map/MapView', () => ({
 import { getCurrentUser, login, logout, register } from './api/auth'
 import { askTravelAssistant } from './api/assistant'
 import { listBucketListItems } from './api/bucketList'
+import { createTripPlan } from './api/planner'
 import { getTravelProfile } from './api/profile'
 import { getMapOverview, getTrip, listTrips } from './api/trips'
 import App from './App'
@@ -148,7 +151,9 @@ describe('App authentication boundary', () => {
     expect(listTrips).not.toHaveBeenCalled()
     expect(getTravelProfile).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Travel Assistant' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Trip Planner' })).toBeNull()
     expect(askTravelAssistant).not.toHaveBeenCalled()
+    expect(createTripPlan).not.toHaveBeenCalled()
   })
 
   it('restores an authenticated session before loading personal data', async () => {
@@ -299,6 +304,62 @@ describe('App authentication boundary', () => {
     expect(screen.getByText('Bob')).toBeTruthy()
     expect(screen.queryByText('Alice private recommendation')).toBeNull()
     expect(screen.getByLabelText('What would you like to explore?')).toBeTruthy()
+  })
+
+  it('does not render a late Alice trip plan after logout and Bob login', async () => {
+    let resolveAlice!: (value: TripPlanningResponse) => void
+    vi.mocked(getCurrentUser).mockResolvedValue(alice)
+    vi.mocked(login).mockResolvedValue(bob)
+    vi.mocked(createTripPlan).mockReturnValueOnce(new Promise((done) => { resolveAlice = done }))
+    render(<App />)
+    await screen.findByTestId('authenticated-map')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Use Alice travel history' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await waitFor(() => expect(createTripPlan).toHaveBeenCalledWith('Use Alice travel history'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByTestId('authenticated-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+
+    await act(async () => resolveAlice({
+      runId: 'alice-plan-run',
+      toolsUsed: ['get_journeys'],
+      plan: {
+        title: 'Alice private itinerary',
+        summary: 'A plan grounded in Alice travel history.',
+        durationDays: 2,
+        startDate: null,
+        endDate: null,
+        destinationSummary: 'Rome, Italy',
+        pace: 'RELAXED',
+        stops: [{
+          cityName: 'Rome',
+          countryCode: 'IT',
+          countryName: 'Italy',
+          latitude: 41.9028,
+          longitude: 12.4964,
+          daysAtStop: 2,
+          reason: 'Alice has not visited recently.',
+          activities: ['Walk through the historic centre'],
+          bucketListMatch: false,
+          alreadyVisited: true,
+        }],
+        considerations: [],
+        sourcesUsed: ['Journey history'],
+      },
+    }))
+
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.queryByText('Alice private itinerary')).toBeNull()
+    expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
   })
 
   it.each([

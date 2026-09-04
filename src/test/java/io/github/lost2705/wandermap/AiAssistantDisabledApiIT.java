@@ -21,4 +21,16 @@ class AiAssistantDisabledApiIT extends AuthenticatedIntegrationTestSupport {
         assertThat(response.statusCode()).isEqualTo(503);
         assertThat(objectMapper.readTree(response.body()).path("code").asText()).isEqualTo("AI_DISABLED");
     }
+
+    @Test
+    void tripPlannerIsAlsoDisabledByDefault() throws Exception {
+        HttpRequest request = csrf(authenticatedRequest("/api/ai/trip-plan"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"message\":\"Plan Italy\"}"))
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(objectMapper.readTree(response.body()).path("code").asText()).isEqualTo("AI_DISABLED");
+    }
 }

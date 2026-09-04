@@ -4,6 +4,7 @@ import io.github.lost2705.wandermap.ai.application.AgentContextLimitException;
 import io.github.lost2705.wandermap.ai.application.AgentIterationLimitException;
 import io.github.lost2705.wandermap.ai.application.AgentToolCallLimitException;
 import io.github.lost2705.wandermap.ai.application.AiProviderException;
+import io.github.lost2705.wandermap.ai.application.InvalidTripPlanException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,6 +12,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class AiExceptionHandler {
+
+    @ExceptionHandler(InvalidTripPlanException.class)
+    ProblemDetail handleInvalidPlan(InvalidTripPlanException exception) {
+        return problem(
+                HttpStatus.BAD_GATEWAY,
+                "Trip plan validation failed",
+                "WanderMap could not create a consistent trip-plan draft. Please adjust the request and try again.",
+                "AI_INVALID_PLAN");
+    }
 
     @ExceptionHandler(AiProviderException.class)
     ProblemDetail handleProviderFailure(AiProviderException exception) {
