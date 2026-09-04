@@ -23,6 +23,10 @@ vi.mock('./api/assistant', () => ({
   askTravelAssistant: vi.fn(),
 }))
 
+vi.mock('./api/planner', () => ({
+  createTripPlan: vi.fn(),
+}))
+
 vi.mock('./api/bucketList', () => ({
   addBucketListItem: vi.fn(),
   deleteBucketListItem: vi.fn(),
@@ -115,6 +119,7 @@ import {
 import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { searchCities } from './api/cities'
 import { askTravelAssistant } from './api/assistant'
+import { createTripPlan } from './api/planner'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
 import { AuthenticatedApp as App } from './App'
@@ -344,6 +349,33 @@ beforeEach(() => {
     runId: 'assistant-run',
     answer: 'Consider Porto next.',
     toolsUsed: ['get_travel_profile'],
+  })
+  vi.mocked(createTripPlan).mockResolvedValue({
+    runId: 'planner-run',
+    toolsUsed: ['search_places'],
+    plan: {
+      title: 'Italy in October',
+      summary: 'A relaxed Italian draft.',
+      durationDays: 1,
+      startDate: null,
+      endDate: null,
+      destinationSummary: 'Italy',
+      pace: 'RELAXED',
+      stops: [{
+        cityName: 'Rome',
+        countryCode: 'IT',
+        countryName: 'Italy',
+        latitude: 41.9028,
+        longitude: 12.4964,
+        daysAtStop: 1,
+        reason: 'A good fit.',
+        activities: ['Architecture'],
+        bucketListMatch: false,
+        alreadyVisited: true,
+      }],
+      considerations: ['Read-only draft.'],
+      sourcesUsed: ['Place Search'],
+    },
   })
 })
 
@@ -1661,6 +1693,50 @@ describe('App Travel Assistant navigation', () => {
 
     expect(screen.queryByText('Consider Porto next.')).toBeNull()
     expect((screen.getByLabelText('What would you like to explore?') as HTMLTextAreaElement).value).toBe('')
+  })
+})
+
+describe('App Trip Planner navigation', () => {
+  const alice = { id: 'alice', displayName: 'Alice Atlas', email: 'alice@example.com' }
+
+  it('opens exclusively while preserving the selected Journey and single map instance', async () => {
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    await waitFor(() => expectMapState('italy', 'IT', 'italy'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+
+    const planner = screen.getByRole('region', { name: 'Plan a trip' })
+    expect(within(planner).getByRole('heading', { name: 'Plan a trip' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Travel Assistant' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Travel Profile' })).toBeNull()
+    expect(document.activeElement).toBe(within(planner).getByRole('button', { name: 'Back to map' }))
+    expect(document.querySelector('#journey-navigation')?.hasAttribute('inert')).toBe(true)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+
+    fireEvent.click(within(planner).getByRole('button', { name: 'Back to map' }))
+
+    expect(screen.queryByRole('region', { name: 'Plan a trip' })).toBeNull()
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('italy', 'IT', 'italy')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Trip Planner' })))
+  })
+
+  it('preserves the global World state across a planner round trip', async () => {
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+    await waitFor(() => expectMapState('global', 'IT,JP', 'italy,japan'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Plan a trip' }))
+      .getByRole('button', { name: 'Back to map' }))
+
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expectMapState('global', 'IT,JP', 'italy,japan')
   })
 })
 

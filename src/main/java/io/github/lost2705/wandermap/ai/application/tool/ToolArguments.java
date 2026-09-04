@@ -2,6 +2,8 @@ package io.github.lost2705.wandermap.ai.application.tool;
 
 import io.github.lost2705.wandermap.ai.application.ToolArgumentException;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -79,6 +81,61 @@ final class ToolArguments {
                 "additionalProperties", false);
     }
 
+    static PlaceSearch placeSearch(ObjectMapper objectMapper, String argumentsJson) {
+        JsonNode arguments = object(objectMapper, argumentsJson);
+        if (arguments.size() != 3
+                || !arguments.has("query")
+                || !arguments.has("countryCode")
+                || !arguments.has("limit")) {
+            throw new ToolArgumentException("query, countryCode, and limit are required and no other arguments are allowed");
+        }
+        String query = arguments.path("query").isTextual() ? arguments.path("query").asText().strip() : "";
+        if (query.length() < 2 || query.length() > 160) {
+            throw new ToolArgumentException("query must contain between 2 and 160 characters");
+        }
+        String countryCode = null;
+        JsonNode countryNode = arguments.get("countryCode");
+        if (!countryNode.isNull()) {
+            if (!countryNode.isTextual()) {
+                throw new ToolArgumentException("countryCode must be null or a two-letter country code");
+            }
+            countryCode = countryNode.asText().strip().toUpperCase(Locale.ROOT);
+            if (!countryCode.matches("[A-Z]{2}")) {
+                throw new ToolArgumentException("countryCode must be null or a two-letter country code");
+            }
+        }
+        if (!arguments.path("limit").isIntegralNumber()) {
+            throw new ToolArgumentException("limit must be an integer between 1 and 8");
+        }
+        int limit = arguments.path("limit").asInt();
+        if (limit < 1 || limit > 8) {
+            throw new ToolArgumentException("limit must be an integer between 1 and 8");
+        }
+        return new PlaceSearch(query, countryCode, limit);
+    }
+
+    static Map<String, Object> placeSearchSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "query", Map.of(
+                                "type", "string",
+                                "minLength", 2,
+                                "maxLength", 160,
+                                "description", "A concrete city or locality name to resolve, not a recommendation query"),
+                        "countryCode", Map.of(
+                                "anyOf", List.of(
+                                        Map.of("type", "string", "pattern", "^[A-Z]{2}$"),
+                                        Map.of("type", "null")),
+                                "description", "Optional ISO alpha-2 country filter"),
+                        "limit", Map.of(
+                                "type", "integer",
+                                "minimum", 1,
+                                "maximum", 8)),
+                "required", List.of("query", "countryCode", "limit"),
+                "additionalProperties", false);
+    }
+
     private static JsonNode object(ObjectMapper objectMapper, String argumentsJson) {
         if (argumentsJson == null || argumentsJson.isBlank()) {
             throw new ToolArgumentException("tool arguments must be a JSON object");
@@ -97,5 +154,8 @@ final class ToolArguments {
     }
 
     record Coordinates(BigDecimal latitude, BigDecimal longitude) {
+    }
+
+    record PlaceSearch(String query, String countryCode, int limit) {
     }
 }

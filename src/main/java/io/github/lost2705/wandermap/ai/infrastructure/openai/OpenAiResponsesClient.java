@@ -5,6 +5,7 @@ import io.github.lost2705.wandermap.ai.application.AiModelClient;
 import io.github.lost2705.wandermap.ai.application.AiModelRequest;
 import io.github.lost2705.wandermap.ai.application.AiModelResponse;
 import io.github.lost2705.wandermap.ai.application.AiProviderException;
+import io.github.lost2705.wandermap.ai.application.AiStructuredOutputDefinition;
 import io.github.lost2705.wandermap.ai.application.AiToolCall;
 import io.github.lost2705.wandermap.ai.application.AiToolDefinition;
 import java.util.ArrayList;
@@ -85,7 +86,20 @@ public class OpenAiResponsesClient implements AiModelClient {
         body.put("max_output_tokens", maxOutputTokens);
         body.put("store", false);
         body.put("include", List.of("reasoning.encrypted_content"));
+        if (request.structuredOutput() != null) {
+            body.put("text", Map.of("format", structuredFormat(request.structuredOutput())));
+        }
         return body;
+    }
+
+    private static Map<String, Object> structuredFormat(AiStructuredOutputDefinition definition) {
+        Map<String, Object> format = new LinkedHashMap<>();
+        format.put("type", "json_schema");
+        format.put("name", definition.name());
+        format.put("description", definition.description());
+        format.put("strict", true);
+        format.put("schema", definition.schema());
+        return format;
     }
 
     private List<Object> input(List<AiMessage> messages) {

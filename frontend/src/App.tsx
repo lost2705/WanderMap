@@ -35,6 +35,7 @@ import { PlaceDetailsPanel } from './components/PlaceDetailsPanel'
 import { TripForm } from './components/TripForm'
 import { TripList } from './components/TripList'
 import { TravelAssistantView } from './components/TravelAssistantView'
+import { TripPlannerView } from './components/TripPlannerView'
 import { TravelProfileView } from './components/TravelProfileView'
 import { WorldPlaceNavigation } from './components/WorldPlaceNavigation'
 import { WorldTravelStatsBar } from './components/WorldTravelStatsBar'
@@ -57,7 +58,7 @@ import type {
 } from './types/travel'
 
 type TripFormMode = 'create' | 'edit' | null
-type FullScreenView = 'profile' | 'assistant' | null
+type FullScreenView = 'profile' | 'assistant' | 'planner' | null
 
 interface AppProps {
   initialTheme?: Theme
@@ -223,6 +224,8 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
   const profileBackRef = useRef<HTMLButtonElement>(null)
   const assistantTriggerRef = useRef<HTMLButtonElement>(null)
   const assistantBackRef = useRef<HTMLButtonElement>(null)
+  const plannerTriggerRef = useRef<HTMLButtonElement>(null)
+  const plannerBackRef = useRef<HTMLButtonElement>(null)
   const applicationLoadVersionRef = useRef(0)
   const placeNavigationTriggerRef = useRef<HTMLElement | null>(null)
   const focusOpenedPlaceRef = useRef(false)
@@ -263,6 +266,8 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
       profileBackRef.current?.focus()
     } else if (fullScreenView === 'assistant') {
       assistantBackRef.current?.focus()
+    } else if (fullScreenView === 'planner') {
+      plannerBackRef.current?.focus()
     }
   }, [fullScreenView])
 
@@ -893,6 +898,15 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
     closeFullScreenView(assistantTriggerRef)
   }
 
+  function handleOpenPlanner() {
+    setIsNavigationOpen(false)
+    setFullScreenView('planner')
+  }
+
+  function handleClosePlanner() {
+    closeFullScreenView(plannerTriggerRef)
+  }
+
   function closeFullScreenView(triggerRef: { current: HTMLButtonElement | null }) {
     setFullScreenView(null)
     window.requestAnimationFrame(() => {
@@ -1022,6 +1036,14 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
             <span className="account-actions">
               <button
                 className="button button-quiet"
+                ref={plannerTriggerRef}
+                type="button"
+                onClick={handleOpenPlanner}
+              >
+                Trip Planner
+              </button>
+              <button
+                className="button button-quiet"
                 ref={assistantTriggerRef}
                 type="button"
                 onClick={handleOpenAssistant}
@@ -1140,6 +1162,9 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
       ) : null}
       {fullScreenView === 'assistant' && currentUser ? (
         <TravelAssistantView backButtonRef={assistantBackRef} onBack={handleCloseAssistant} />
+      ) : null}
+      {fullScreenView === 'planner' && currentUser ? (
+        <TripPlannerView backButtonRef={plannerBackRef} onBack={handleClosePlanner} />
       ) : null}
     </main>
   )

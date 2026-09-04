@@ -15,6 +15,8 @@ import io.github.lost2705.wandermap.travel.application.Achievement;
 import io.github.lost2705.wandermap.travel.application.AchievementCategory;
 import io.github.lost2705.wandermap.travel.application.BucketListEntry;
 import io.github.lost2705.wandermap.travel.application.BucketListService;
+import io.github.lost2705.wandermap.travel.application.CitySearchResult;
+import io.github.lost2705.wandermap.travel.application.CitySearchService;
 import io.github.lost2705.wandermap.travel.application.TravelHighlights;
 import io.github.lost2705.wandermap.travel.application.TravelProfile;
 import io.github.lost2705.wandermap.travel.application.TravelProfileService;
@@ -167,6 +169,52 @@ class TravelAgentToolsTest {
             assertThatThrownBy(() -> tool.execute(null))
                     .as("%s null arguments", tool.definition().name())
                     .isInstanceOf(ToolArgumentException.class);
+        }
+    }
+
+    @Test
+    void placeSearchResolvesProviderNeutralCitiesAndAppliesCountryAndLimitFilters() {
+        CitySearchService service = mock(CitySearchService.class);
+        when(service.searchCities("Florence")).thenReturn(List.of(
+                new CitySearchResult(
+                        "Florence", "Italy", "Tuscany", "IT", decimal("43.7696"), decimal("11.2558")),
+                new CitySearchResult(
+                        "Florence", "United States", "Alabama", "US", decimal("34.7998"), decimal("-87.6773")),
+                new CitySearchResult(
+                        "Florence", "United States", "South Carolina", "US", decimal("34.1954"), decimal("-79.7626"))));
+        SearchPlacesTool tool = new SearchPlacesTool(service, objectMapper);
+
+        SearchPlacesTool.Result result = (SearchPlacesTool.Result) tool.execute(
+                "{\"query\":\"Florence\",\"countryCode\":\"us\",\"limit\":2}");
+
+        assertThat(result.places())
+                .extracting(SearchPlacesTool.Place::region)
+                .containsExactly("Alabama", "South Carolina");
+        assertThat(result.places()).allSatisfy(place -> assertThat(place.countryCode()).isEqualTo("US"));
+        verify(service).searchCities("Florence");
+        assertThat(tool.definition().description()).contains("does not rank");
+        assertThat(tool.definition().inputSchema().toString()).doesNotContainIgnoringCase("userId", "url");
+    }
+
+    @Test
+    void placeSearchHandlesNoMatchesProviderFailureAndInvalidArguments() {
+        CitySearchService service = mock(CitySearchService.class);
+        when(service.searchCities("Unknown place")).thenReturn(List.of());
+        when(service.searchCities("Failure")).thenThrow(new IllegalStateException("provider failed"));
+        SearchPlacesTool tool = new SearchPlacesTool(service, objectMapper);
+
+        assertThat(((SearchPlacesTool.Result) tool.execute(
+                "{\"query\":\"Unknown place\",\"countryCode\":null,\"limit\":5}"))
+                .places()).isEmpty();
+        assertThatThrownBy(() -> tool.execute(
+                "{\"query\":\"Failure\",\"countryCode\":null,\"limit\":5}"))
+                .isInstanceOf(IllegalStateException.class);
+        for (String invalid : List.of(
+                "{\"query\":\"x\",\"countryCode\":null,\"limit\":5}",
+                "{\"query\":\"Rome\",\"countryCode\":\"ITA\",\"limit\":5}",
+                "{\"query\":\"Rome\",\"countryCode\":null,\"limit\":9}",
+                "{\"query\":\"Rome\",\"countryCode\":null,\"limit\":5,\"url\":\"https://evil\"}")) {
+            assertThatThrownBy(() -> tool.execute(invalid)).isInstanceOf(ToolArgumentException.class);
         }
     }
 
