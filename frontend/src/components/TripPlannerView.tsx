@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent, RefObject } from 'react'
-import { createTripPlan } from '../api/planner'
+import { createTripPlan, refineTripPlan } from '../api/planner'
 import type { TripPlanningResponse } from '../api/planner'
 import { ApiError } from '../api/client'
 
@@ -15,11 +15,22 @@ const STARTERS = [
   'Plan a week using places from my Bucket List.',
 ]
 
+const REFINEMENT_STARTERS = [
+  'Make it more relaxed.',
+  'Use fewer cities.',
+  'Add a place from my Bucket List.',
+  "Avoid places I've visited.",
+]
+
 export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps) {
   const [message, setMessage] = useState('')
+  const [refinementMessage, setRefinementMessage] = useState('')
   const [result, setResult] = useState<TripPlanningResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'create' | 'refine' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [refinementError, setRefinementError] = useState<string | null>(null)
+  const [wasRefined, setWasRefined] = useState(false)
+  const isLoading = pendingAction !== null
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -27,22 +38,47 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
     if (!request || isLoading) {
       return
     }
-    setIsLoading(true)
+    setPendingAction('create')
     setError(null)
     try {
       setResult(await createTripPlan(request))
+      setWasRefined(false)
     } catch (reason) {
       setResult(null)
       setError(plannerErrorMessage(reason))
     } finally {
-      setIsLoading(false)
+      setPendingAction(null)
+    }
+  }
+
+  async function handleRefinement(event: FormEvent) {
+    event.preventDefault()
+    const request = refinementMessage.trim()
+    if (!result || !request || isLoading) {
+      return
+    }
+    setPendingAction('refine')
+    setRefinementError(null)
+    setWasRefined(false)
+    try {
+      const refined = await refineTripPlan(result.plan, request)
+      setResult(refined)
+      setRefinementMessage('')
+      setWasRefined(true)
+    } catch (reason) {
+      setRefinementError(plannerErrorMessage(reason))
+    } finally {
+      setPendingAction(null)
     }
   }
 
   function handleNewPlan() {
     setMessage('')
+    setRefinementMessage('')
     setResult(null)
     setError(null)
+    setRefinementError(null)
+    setWasRefined(false)
   }
 
   return (
@@ -90,7 +126,7 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
               </form>
             </>
           ) : (
-            <section className="trip-plan-result" aria-live="polite">
+            <section className="trip-plan-result" aria-busy={pendingAction === 'refine'} aria-live="polite">
               <header className="trip-plan-heading">
                 <p className="eyebrow">Read-only trip draft</p>
                 <h1 id="trip-planner-title">{result.plan.title}</h1>
@@ -150,8 +186,57 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
                   <p>No personal data sources were needed for this draft.</p>
                 )}
               </section>
+              <form className="trip-plan-refinement" onSubmit={(event) => void handleRefinement(event)}>
+                <div>
+                  <p className="eyebrow">Refine this draft</p>
+                  <h2 id="trip-plan-refinement-title">Want to adjust this plan?</h2>
+                  <p>Describe the change and WanderMap will replace this draft only after validating the full itinerary.</p>
+                </div>
+                <label htmlFor="trip-plan-refinement-message">How should this plan change?</label>
+                <textarea
+                  id="trip-plan-refinement-message"
+                  maxLength={4000}
+                  placeholder="Remove Bologna and add another day in Florence…"
+                  rows={4}
+                  value={refinementMessage}
+                  onChange={(event) => setRefinementMessage(event.target.value)}
+                />
+                <div className="assistant-starters" aria-label="Suggested plan adjustments">
+                  {REFINEMENT_STARTERS.map((starter) => (
+                    <button
+                      key={starter}
+                      disabled={isLoading}
+                      type="button"
+                      onClick={() => setRefinementMessage(starter)}
+                    >
+                      {starter}
+                    </button>
+                  ))}
+                </div>
+                {refinementError ? <p className="assistant-error" role="alert">{refinementError}</p> : null}
+                <button
+                  className="button button-primary assistant-send"
+                  disabled={!refinementMessage.trim() || isLoading}
+                  type="submit"
+                >
+                  {pendingAction === 'refine' ? 'Updating plan…' : 'Update plan'}
+                </button>
+                {pendingAction === 'refine' ? (
+                  <p className="trip-plan-refinement-status" role="status">
+                    WanderMap is refining your draft. The current plan will stay visible until the update is ready.
+                  </p>
+                ) : null}
+                {wasRefined ? <p className="trip-plan-refinement-status" role="status">Plan updated.</p> : null}
+              </form>
               <div className="trip-plan-actions">
-                <button className="button button-secondary" type="button" onClick={handleNewPlan}>New plan</button>
+                <button
+                  className="button button-secondary"
+                  disabled={isLoading}
+                  type="button"
+                  onClick={handleNewPlan}
+                >
+                  New plan
+                </button>
               </div>
             </section>
           )}

@@ -20,6 +20,33 @@ public class TripPlanValidator {
             "Travel Profile", "Journeys", "Bucket List", "Place Search", "Weather");
 
     public void validate(TripPlanDraft draft, List<ResolvedPlace> resolvedPlaces) {
+        validateStructure(draft);
+
+        Set<PlaceKey> uniqueStops = new HashSet<>();
+        for (TripPlanStop stop : draft.stops()) {
+            ResolvedPlace resolved = resolve(stop, resolvedPlaces);
+            if (resolved == null) {
+                invalid("every stop must match a place returned by an application tool");
+            }
+            if (stop.bucketListMatch() != resolved.bucketListMatch()
+                    || stop.alreadyVisited() != resolved.alreadyVisited()) {
+                invalid("personal place flags must match application tool data");
+            }
+            if (!uniqueStops.add(PlaceKey.from(resolved))) {
+                invalid("duplicate city stops are not supported");
+            }
+        }
+    }
+
+    public void validateClientDraft(TripPlanDraft draft) {
+        try {
+            validateStructure(draft);
+        } catch (InvalidTripPlanException exception) {
+            throw new InvalidTripPlanRequestException("current plan is invalid");
+        }
+    }
+
+    private static void validateStructure(TripPlanDraft draft) {
         if (draft == null) {
             invalid("plan is required");
         }
@@ -58,16 +85,11 @@ public class TripPlanValidator {
                 invalid("a stop must not contain more than 8 activities");
             }
             stop.activities().forEach(activity -> text(activity, "activity", 200));
-
-            ResolvedPlace resolved = resolve(stop, resolvedPlaces);
-            if (resolved == null) {
-                invalid("every stop must match a place returned by an application tool");
-            }
-            if (stop.bucketListMatch() != resolved.bucketListMatch()
-                    || stop.alreadyVisited() != resolved.alreadyVisited()) {
-                invalid("personal place flags must match application tool data");
-            }
-            if (!uniqueStops.add(PlaceKey.from(resolved))) {
+            if (!uniqueStops.add(new PlaceKey(
+                    stop.cityName().strip().toLowerCase(Locale.ROOT),
+                    stop.countryCode(),
+                    stop.latitude().stripTrailingZeros(),
+                    stop.longitude().stripTrailingZeros()))) {
                 invalid("duplicate city stops are not supported");
             }
         }

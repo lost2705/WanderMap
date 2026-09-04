@@ -884,6 +884,58 @@ textarea:focus-visible {
   gap: 0.65rem;
 }
 
+.trip-plan-refinement {
+  display: grid;
+  gap: 0.9rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 2rem;
+}
+
+.trip-plan-refinement h2 {
+  margin: 0.35rem 0 0;
+  font-family: var(--font-editorial);
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.trip-plan-refinement > div > p:last-child {
+  max-width: 42rem;
+  margin: 0.65rem 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.trip-plan-refinement > label {
+  color: var(--color-text-primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.trip-plan-refinement > textarea {
+  width: 100%;
+  min-height: 7rem;
+  resize: vertical;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-medium);
+  padding: 0.9rem 1rem;
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  color: var(--color-text-primary);
+  font: inherit;
+  line-height: 1.55;
+}
+
+.trip-plan-refinement > textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.trip-plan-refinement-status {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
 .achievement-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -29,6 +29,26 @@ class TravelAgentTest {
     }
 
     @Test
+    void refinementSupportDoesNotChangeTheNormalAssistantContract() {
+        ScriptedModel model = new ScriptedModel(AiModelResponse.finalAnswer("Try Lisbon."));
+
+        TravelAgentResult result = agent(
+                model,
+                6,
+                new RecordingTool("search_places", Map.of()),
+                new RecordingTool("get_travel_profile", Map.of()))
+                .answer("Where next?");
+
+        assertThat(result.answer()).isEqualTo("Try Lisbon.");
+        assertThat(model.requests.getFirst().structuredOutput()).isNull();
+        assertThat(model.requests.getFirst().tools()).extracting(AiToolDefinition::name)
+                .containsExactly("get_travel_profile");
+        assertThat(model.requests.getFirst().messages().getFirst().content())
+                .contains("WanderMap Travel Assistant")
+                .doesNotContain("current draft", "refining");
+    }
+
+    @Test
     void executesOneToolAndReturnsItsStructuredResultToTheModel() {
         ScriptedModel model = new ScriptedModel(
                 AiModelResponse.toolCalls(new AiToolCall("call-1", "get_travel_profile", "{}")),

@@ -25,6 +25,7 @@ vi.mock('./api/assistant', () => ({
 
 vi.mock('./api/planner', () => ({
   createTripPlan: vi.fn(),
+  refineTripPlan: vi.fn(),
 }))
 
 vi.mock('./api/bucketList', () => ({
@@ -119,7 +120,7 @@ import {
 import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { searchCities } from './api/cities'
 import { askTravelAssistant } from './api/assistant'
-import { createTripPlan } from './api/planner'
+import { createTripPlan, refineTripPlan } from './api/planner'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
 import { AuthenticatedApp as App } from './App'
@@ -377,6 +378,11 @@ beforeEach(() => {
       sourcesUsed: ['Place Search'],
     },
   })
+  vi.mocked(refineTripPlan).mockImplementation((plan, message) => Promise.resolve({
+    runId: `refine-${message}`,
+    toolsUsed: ['get_journeys', 'get_bucket_list', 'search_places'],
+    plan: { ...plan, title: message },
+  }))
 })
 
 afterEach(() => {
@@ -1737,6 +1743,38 @@ describe('App Trip Planner navigation', () => {
 
     expect(screen.getByTestId('map-state')).toBe(mapSurface)
     expectMapState('global', 'IT,JP', 'italy,japan')
+  })
+
+  it('keeps a selected Journey and the same map instance across multiple refinements', async () => {
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    await waitFor(() => expectMapState('italy', 'IT', 'italy'))
+    const mapSurface = screen.getByTestId('map-state')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
+      target: { value: 'Plan Italy' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'First refinement' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await screen.findByRole('heading', { name: 'First refinement' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), {
+      target: { value: 'Second refinement' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await screen.findByRole('heading', { name: 'Second refinement' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to map' }))
+
+    expect(refineTripPlan).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('map-state')).toBe(mapSurface)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+    expectMapState('italy', 'IT', 'italy')
   })
 })
 
