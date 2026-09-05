@@ -907,6 +907,23 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
     closeFullScreenView(plannerTriggerRef)
   }
 
+  function handlePlanCreated(createdTrip: Trip) {
+    setError(null)
+    setFormMode(null)
+    setAtlasView({ kind: 'map' })
+    setTrips((current) => [...current.filter((trip) => trip.id !== createdTrip.id), toTripSummary(createdTrip)]
+      .sort(compareTripSummaries))
+    setSelectedTrip(createdTrip)
+    setSelectedTripId(createdTrip.id)
+    closeFullScreenView(plannerTriggerRef)
+    void refreshOverview()
+    void refreshTravelProfile()
+    void listBucketListItems().then((items) => {
+      setBucketListItems(items)
+      setBucketListLoadError(null)
+    }).catch(() => setBucketListLoadError(BUCKET_LIST_UNAVAILABLE_MESSAGE))
+  }
+
   function closeFullScreenView(triggerRef: { current: HTMLButtonElement | null }) {
     setFullScreenView(null)
     window.requestAnimationFrame(() => {
@@ -1164,7 +1181,7 @@ export function AuthenticatedApp({ initialTheme, currentUser, logoutError, onLog
         <TravelAssistantView backButtonRef={assistantBackRef} onBack={handleCloseAssistant} />
       ) : null}
       {fullScreenView === 'planner' && currentUser ? (
-        <TripPlannerView backButtonRef={plannerBackRef} onBack={handleClosePlanner} />
+        <TripPlannerView backButtonRef={plannerBackRef} onBack={handleClosePlanner} onCreated={handlePlanCreated} />
       ) : null}
     </main>
   )

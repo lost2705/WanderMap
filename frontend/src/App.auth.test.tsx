@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from './api/client'
 import type { CurrentUser } from './api/auth'
 import type { TripPlanningResponse } from './api/planner'
-import type { TravelProfile, TripMapOverview, TripSummary } from './types/travel'
+import type { Trip, TravelProfile, TripMapOverview, TripSummary } from './types/travel'
 
 const clientState = vi.hoisted(() => ({
   generation: 0,
@@ -58,7 +58,7 @@ vi.mock('./api/profile', () => ({ getTravelProfile: vi.fn() }))
 vi.mock('./api/places', () => ({ getPlaceDetails: vi.fn() }))
 vi.mock('./api/cities', () => ({ searchCities: vi.fn() }))
 vi.mock('./api/assistant', () => ({ askTravelAssistant: vi.fn() }))
-vi.mock('./api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn() }))
+vi.mock('./api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn(), applyTripPlan: vi.fn() }))
 vi.mock('./features/map/MapView', () => ({
   MapView: ({ selectedTrip }: { selectedTrip: { name: string } | null }) => (
     <div data-testid="authenticated-map">{selectedTrip?.name ?? 'World map'}</div>
@@ -68,7 +68,7 @@ vi.mock('./features/map/MapView', () => ({
 import { getCurrentUser, login, logout, register } from './api/auth'
 import { askTravelAssistant } from './api/assistant'
 import { listBucketListItems } from './api/bucketList'
-import { createTripPlan, refineTripPlan } from './api/planner'
+import { applyTripPlan, createTripPlan, refineTripPlan } from './api/planner'
 import { getTravelProfile } from './api/profile'
 import { getMapOverview, getTrip, listTrips } from './api/trips'
 import App from './App'
@@ -390,6 +390,39 @@ describe('App authentication boundary', () => {
     expect(screen.getByText('Bob')).toBeTruthy()
     expect(screen.queryByText('Alice private itinerary')).toBeNull()
     expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
+  })
+
+  it('ignores Alice late apply completion after Bob logs in without triggering Bob refresh or navigation', async () => {
+    let complete!: (trip: Trip) => void
+    vi.mocked(getCurrentUser).mockResolvedValue(alice)
+    vi.mocked(login).mockResolvedValue(bob)
+    vi.mocked(createTripPlan).mockResolvedValue(plannerResponse('Alice apply draft'))
+    vi.mocked(applyTripPlan).mockReturnValueOnce(new Promise((resolve) => { complete = resolve }))
+    render(<App />)
+    await screen.findByTestId('authenticated-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), { target: { value: 'Alice draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Alice apply draft' })
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByTestId('authenticated-map')
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    const profileCalls = vi.mocked(getTravelProfile).mock.calls.length
+    const overviewCalls = vi.mocked(getMapOverview).mock.calls.length
+    await act(async () => complete({ id: 'alice-created', name: 'Alice private Journey',
+      startDate: null, endDate: null, description: null, stops: [] }))
+    expect(screen.getByText('Bob')).toBeTruthy()
+    expect(screen.queryByText('Alice private Journey')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Alice apply draft' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Creating Journey…' })).toBeNull()
+    expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
+    expect(getTravelProfile).toHaveBeenCalledTimes(profileCalls)
+    expect(getMapOverview).toHaveBeenCalledTimes(overviewCalls)
   })
 
   it('does not render Alice draft or a late refinement after logout and Bob login', async () => {

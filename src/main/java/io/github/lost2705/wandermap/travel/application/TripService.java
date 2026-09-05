@@ -3,6 +3,7 @@ package io.github.lost2705.wandermap.travel.application;
 import io.github.lost2705.wandermap.identity.application.CurrentUserProvider;
 import io.github.lost2705.wandermap.identity.domain.UserAccount;
 import io.github.lost2705.wandermap.travel.domain.Trip;
+import io.github.lost2705.wandermap.travel.domain.City;
 import io.github.lost2705.wandermap.travel.domain.TripStop;
 import io.github.lost2705.wandermap.travel.persistence.TripRepository;
 import io.github.lost2705.wandermap.travel.persistence.TripStopRepository;
@@ -44,6 +45,13 @@ public class TripService {
     @Transactional
     public Trip createTrip(String name, LocalDate startDate, LocalDate endDate, String description) {
         return tripRepository.save(new Trip(currentUser(), name, startDate, endDate, description));
+    }
+
+    @Transactional
+    public Trip createTripWithStops(String name, LocalDate startDate, LocalDate endDate, List<City> cities) {
+        Trip trip = createTrip(name, startDate, endDate);
+        cities.forEach(trip::addStop);
+        return tripRepository.save(trip);
     }
 
     @Transactional(readOnly = true)

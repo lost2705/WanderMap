@@ -5,6 +5,10 @@ spring:
     url: ${WANDERMAP_DB_URL:jdbc:postgresql://localhost:5432/wandermap}
     username: ${WANDERMAP_DB_USERNAME:wandermap}
     password: ${WANDERMAP_DB_PASSWORD:wandermap}
+    hikari:
+      data-source-properties:
+        # Constraint error details can contain private city names, coordinates and other row values.
+        logServerErrorDetail: false
   jpa:
     hibernate:
       ddl-auto: validate

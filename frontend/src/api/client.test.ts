@@ -14,6 +14,17 @@ afterEach(() => {
 })
 
 describe('parseApiError', () => {
+  it('does not send an apply mutation under another session after waiting for CSRF', async () => {
+    let resolveCsrf!: (response: Response) => void
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValueOnce(new Promise((resolve) => { resolveCsrf = resolve }))
+    vi.stubGlobal('fetch', fetchMock)
+    const pending = request('/api/ai/trip-plan/apply', { method: 'POST', body: '{}' })
+    resetClientSession()
+    resolveCsrf(new Response('{"headerName":"X-XSRF-TOKEN","token":"old-token"}', { status: 200 }))
+    await expect(pending).rejects.toMatchObject({ code: 'SESSION_CHANGED' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the API problem detail and code when available', () => {
     const error = parseApiError(400, {
       title: 'Validation failed',

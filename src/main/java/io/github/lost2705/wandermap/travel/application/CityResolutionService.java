@@ -59,7 +59,8 @@ public class CityResolutionService {
         if (location == null) {
             return Optional.empty();
         }
-        return cityRepository.findByIdentity(country.getCode(), normalizedName, null, null)
+        // Serialize enrichment of this legacy row so another transaction cannot overwrite its location.
+        return cityRepository.findUnlocatedForUpdate(country.getCode(), normalizedName)
                 .map(city -> {
                     city.applyLocation(location);
                     return city;

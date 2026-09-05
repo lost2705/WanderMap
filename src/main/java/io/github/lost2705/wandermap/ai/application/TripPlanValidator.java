@@ -167,6 +167,9 @@ public class TripPlanValidator {
 
     private static void coordinates(BigDecimal latitude, BigDecimal longitude) {
         if (latitude == null || longitude == null
+                || latitude.precision() > 32 || longitude.precision() > 32
+                || latitude.scale() > 18 || longitude.scale() > 18
+                || latitude.scale() < -6 || longitude.scale() < -6
                 || latitude.compareTo(BigDecimal.valueOf(-90)) < 0
                 || latitude.compareTo(BigDecimal.valueOf(90)) > 0
                 || longitude.compareTo(BigDecimal.valueOf(-180)) < 0
@@ -176,7 +179,7 @@ public class TripPlanValidator {
     }
 
     private static void text(String value, String field, int maximumLength) {
-        if (value == null || value.isBlank() || value.strip().length() > maximumLength) {
+        if (value == null || value.length() > maximumLength || value.isBlank()) {
             invalid(field + " must be nonblank and no longer than " + maximumLength + " characters");
         }
     }

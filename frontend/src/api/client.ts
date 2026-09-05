@@ -46,6 +46,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const requestGeneration = clientSessionGeneration
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData
   const csrf = isUnsafeMethod(init?.method) ? await csrfDetails() : null
+  if (requestGeneration !== clientSessionGeneration) {
+    throw new ApiError(409, 'SESSION_CHANGED', 'The session changed before the request was sent.')
+  }
   const response = await fetch(path, {
     ...init,
     credentials: 'same-origin',
