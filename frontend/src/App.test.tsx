@@ -24,6 +24,7 @@ vi.mock('./api/assistant', () => ({
 }))
 
 vi.mock('./api/planner', () => ({
+  applyTripPlan: vi.fn(),
   createTripPlan: vi.fn(),
   refineTripPlan: vi.fn(),
 }))
@@ -120,7 +121,7 @@ import {
 import { addBucketListItem, deleteBucketListItem, listBucketListItems } from './api/bucketList'
 import { searchCities } from './api/cities'
 import { askTravelAssistant } from './api/assistant'
-import { createTripPlan, refineTripPlan } from './api/planner'
+import { applyTripPlan, createTripPlan, refineTripPlan } from './api/planner'
 import { getPlaceDetails } from './api/places'
 import { getTravelProfile } from './api/profile'
 import { AuthenticatedApp as App } from './App'
@@ -1704,6 +1705,66 @@ describe('App Travel Assistant navigation', () => {
 
 describe('App Trip Planner navigation', () => {
   const alice = { id: 'alice', displayName: 'Alice Atlas', email: 'alice@example.com' }
+
+  it.each(['overview', 'profile', 'bucket'])('keeps Apply successful when the %s refresh fails', async (refresh) => {
+    const created = { ...italyTrip, id: 'applied-trip', name: 'Created Italy' }
+    vi.mocked(applyTripPlan).mockResolvedValue(created)
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    const map = screen.getByTestId('map-state')
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), { target: { value: 'Plan Italy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+    const refreshCall = refresh === 'overview' ? getMapOverview : refresh === 'profile' ? getTravelProfile : listBucketListItems
+    vi.mocked(refreshCall).mockRejectedValueOnce(new Error('Refresh unavailable'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await screen.findByRole('heading', { name: 'Created Italy' })
+    await act(async () => {})
+    expect(screen.getByTestId('map-state')).toBe(map)
+    expect(map.getAttribute('data-selected-trip')).toBe(created.id)
+    expect(screen.getByRole('button', { name: 'Created Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('button', { name: 'Create Journey' })).toBeNull()
+    expect(screen.queryByText(/Journey creation could not be confirmed/)).toBeNull()
+    expect(applyTripPlan).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Trip Planner' })))
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    expect(screen.getByLabelText('What kind of trip are you imagining?')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create Journey' })).toBeNull()
+  })
+
+  it.each(['world', 'journey'])('applies a refined plan from %s, refreshes personal data and selects it on the same map', async (origin) => {
+    const created = { ...italyTrip, id: 'applied-trip', name: 'Created Italy' }
+    vi.mocked(applyTripPlan).mockResolvedValue(created)
+    render(<App currentUser={alice} onLogout={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Italy' })
+    if (origin === 'world') {
+      fireEvent.click(screen.getByRole('button', { name: 'Italy, 1 place' }))
+      await waitFor(() => expectMapState('global', 'IT,JP', 'italy,japan'))
+    }
+    const map = screen.getByTestId('map-state')
+    const profileCalls = vi.mocked(getTravelProfile).mock.calls.length
+    const overviewCalls = vi.mocked(getMapOverview).mock.calls.length
+    const bucketCalls = vi.mocked(listBucketListItems).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Trip Planner' }))
+    fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), { target: { value: 'Plan Italy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+    await screen.findByRole('heading', { name: 'Italy in October' })
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), { target: { value: 'Final Italy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await screen.findByRole('heading', { name: 'Final Italy' })
+    expect(applyTripPlan).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await screen.findByRole('heading', { name: 'Created Italy' })
+    expect(map.getAttribute('data-selected-trip')).toBe(created.id)
+    expect(screen.getByTestId('map-state')).toBe(map)
+    expect(screen.getAllByTestId('map-state')).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Final Italy' })).toBeNull()
+    expect(getTravelProfile).toHaveBeenCalledTimes(profileCalls + 1)
+    expect(getMapOverview).toHaveBeenCalledTimes(overviewCalls + 1)
+    expect(listBucketListItems).toHaveBeenCalledTimes(bucketCalls + 1)
+    expect(screen.getByRole('button', { name: 'Created Italy, 1 place' }).getAttribute('aria-pressed')).toBe('true')
+  })
 
   it('opens exclusively while preserving the selected Journey and single map instance', async () => {
     render(<App currentUser={alice} onLogout={vi.fn()} />)

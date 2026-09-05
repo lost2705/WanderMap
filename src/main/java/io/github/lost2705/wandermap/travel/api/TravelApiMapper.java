@@ -20,7 +20,7 @@ import io.github.lost2705.wandermap.travel.domain.TripStopPhoto;
 import java.util.Comparator;
 import java.util.List;
 
-final class TravelApiMapper {
+public final class TravelApiMapper {
 
     private TravelApiMapper() {
     }
@@ -29,7 +29,7 @@ final class TravelApiMapper {
         return new CountryResponse(country.getCode(), country.getName());
     }
 
-    static TripResponse toResponse(Trip trip) {
+    public static TripResponse toResponse(Trip trip) {
         return new TripResponse(
                 trip.getId(),
                 trip.getName(),

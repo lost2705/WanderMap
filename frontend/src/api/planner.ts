@@ -1,4 +1,5 @@
 import { request } from './client'
+import type { Trip } from '../types/travel'
 
 export type TripPlanPace = 'RELAXED' | 'BALANCED' | 'FAST'
 
@@ -45,5 +46,12 @@ export function refineTripPlan(plan: TripPlanDraft, message: string): Promise<Tr
   return request<TripPlanningResponse>('/api/ai/trip-plan/refine', {
     method: 'POST',
     body: JSON.stringify({ plan, message }),
+  })
+}
+
+export function applyTripPlan(plan: TripPlanDraft, requestId: string): Promise<Trip> {
+  return request<Trip>('/api/ai/trip-plan/apply', {
+    method: 'POST',
+    body: JSON.stringify({ plan, requestId }),
   })
 }

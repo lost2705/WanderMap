@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, RefObject } from 'react'
-import { createTripPlan, refineTripPlan } from '../api/planner'
+import { applyTripPlan, createTripPlan, refineTripPlan } from '../api/planner'
 import type { TripPlanningResponse } from '../api/planner'
-import { ApiError } from '../api/client'
+import { ApiError, getClientSessionGeneration } from '../api/client'
+import type { Trip } from '../types/travel'
 
 interface TripPlannerViewProps {
   backButtonRef?: RefObject<HTMLButtonElement | null>
   onBack: () => void
+  onCreated: (trip: Trip) => void
 }
 
 const STARTERS = [
@@ -22,15 +24,50 @@ const REFINEMENT_STARTERS = [
   "Avoid places I've visited.",
 ]
 
-export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps) {
+export function TripPlannerView({ backButtonRef, onBack, onCreated }: TripPlannerViewProps) {
   const [message, setMessage] = useState('')
   const [refinementMessage, setRefinementMessage] = useState('')
   const [result, setResult] = useState<TripPlanningResponse | null>(null)
-  const [pendingAction, setPendingAction] = useState<'create' | 'refine' | null>(null)
+  const [pendingAction, setPendingAction] = useState<'create' | 'refine' | 'apply' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refinementError, setRefinementError] = useState<string | null>(null)
   const [wasRefined, setWasRefined] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
+  const [applyConflict, setApplyConflict] = useState(false)
+  const applyRequestId = useRef<string | null>(null)
+  const applyPending = useRef(false)
+  const mounted = useRef(false)
+  const refinementInput = useRef<HTMLTextAreaElement>(null)
   const isLoading = pendingAction !== null
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
+
+  async function handleApply() {
+    if (!result || isLoading || applyPending.current || applyConflict) return
+    applyPending.current = true
+    const session = getClientSessionGeneration()
+    const isCurrent = () => mounted.current && session === getClientSessionGeneration()
+    applyRequestId.current ??= crypto.randomUUID()
+    setPendingAction('apply')
+    setApplyError(null)
+    try {
+      const journey = await applyTripPlan(result.plan, applyRequestId.current)
+      if (isCurrent()) onCreated(journey)
+    } catch (reason) {
+      if (isCurrent()) {
+        setApplyError(applyErrorMessage(reason))
+        setApplyConflict(reason instanceof ApiError && reason.code === 'CONFLICT')
+      }
+    } finally {
+      if (isCurrent()) {
+        applyPending.current = false
+        setPendingAction(null)
+      }
+    }
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -63,6 +100,9 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
     try {
       const refined = await refineTripPlan(result.plan, request)
       setResult(refined)
+      applyRequestId.current = null
+      setApplyError(null)
+      setApplyConflict(false)
       setRefinementMessage('')
       setWasRefined(true)
     } catch (reason) {
@@ -73,12 +113,16 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
   }
 
   function handleNewPlan() {
+    if (isLoading || applyPending.current) return
     setMessage('')
     setRefinementMessage('')
     setResult(null)
     setError(null)
     setRefinementError(null)
     setWasRefined(false)
+    applyRequestId.current = null
+    setApplyError(null)
+    setApplyConflict(false)
   }
 
   return (
@@ -126,9 +170,9 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
               </form>
             </>
           ) : (
-            <section className="trip-plan-result" aria-busy={pendingAction === 'refine'} aria-live="polite">
+            <section className="trip-plan-result" aria-busy={isLoading} aria-live="polite">
               <header className="trip-plan-heading">
-                <p className="eyebrow">Read-only trip draft</p>
+                <p className="eyebrow">Review your trip draft</p>
                 <h1 id="trip-planner-title">{result.plan.title}</h1>
                 <p className="trip-plan-meta">
                   <span>{result.plan.durationDays} {result.plan.durationDays === 1 ? 'day' : 'days'}</span>
@@ -186,6 +230,20 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
                   <p>No personal data sources were needed for this draft.</p>
                 )}
               </section>
+              <section className="trip-plan-refinement" aria-labelledby="trip-plan-review-title">
+                <h2 id="trip-plan-review-title">Your trip is ready</h2>
+                <p>Create a Journey with this title, dates and ordered places. Ideas and day allocations stay in this draft.</p>
+                <div className="trip-plan-actions">
+                  <button className="button button-primary" disabled={isLoading || applyConflict} type="button" onClick={() => void handleApply()}>
+                    {pendingAction === 'apply' ? 'Creating Journey…' : 'Create Journey'}
+                  </button>
+                  <button className="button button-secondary" disabled={isLoading} type="button" onClick={() => refinementInput.current?.focus()}>
+                    Adjust plan
+                  </button>
+                </div>
+                {pendingAction === 'apply' ? <p role="status">Creating Journey… Your draft will stay visible.</p> : null}
+                {applyError ? <p className="assistant-error" role="alert">{applyError}</p> : null}
+              </section>
               <form className="trip-plan-refinement" onSubmit={(event) => void handleRefinement(event)}>
                 <div>
                   <p className="eyebrow">Refine this draft</p>
@@ -195,6 +253,8 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
                 <label htmlFor="trip-plan-refinement-message">How should this plan change?</label>
                 <textarea
                   id="trip-plan-refinement-message"
+                  ref={refinementInput}
+                  disabled={isLoading}
                   maxLength={4000}
                   placeholder="Remove Bologna and add another day in Florence…"
                   rows={4}
@@ -248,6 +308,19 @@ export function TripPlannerView({ backButtonRef, onBack }: TripPlannerViewProps)
 
 function paceLabel(pace: TripPlanningResponse['plan']['pace']): string {
   return pace.charAt(0) + pace.slice(1).toLowerCase()
+}
+
+function applyErrorMessage(reason: unknown): string {
+  if (reason instanceof ApiError && reason.code === 'PLACE_UNRESOLVED') {
+    return 'A place could not be verified. Adjust the plan and try again.'
+  }
+  if (reason instanceof ApiError && reason.code === 'INVALID_REQUEST') {
+    return 'This draft could not be applied. Adjust the plan and try again.'
+  }
+  if (reason instanceof ApiError && reason.code === 'CONFLICT') {
+    return 'This creation request has already been used. Check your Journeys before starting a new plan.'
+  }
+  return 'Journey creation could not be confirmed. Retry to safely check the same request.'
 }
 
 function plannerErrorMessage(reason: unknown): string {

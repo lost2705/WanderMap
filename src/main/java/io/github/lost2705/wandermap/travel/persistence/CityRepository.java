@@ -1,10 +1,12 @@
 package io.github.lost2705.wandermap.travel.persistence;
 
 import io.github.lost2705.wandermap.travel.domain.City;
+import jakarta.persistence.LockModeType;
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +14,15 @@ public interface CityRepository extends JpaRepository<City, UUID> {
 
     @Query("SELECT city FROM City city JOIN FETCH city.country WHERE city.id = :cityId")
     Optional<City> findByIdWithCountry(@Param("cityId") UUID cityId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT city FROM City city
+            WHERE city.country.code = :countryCode AND city.normalizedName = :normalizedName
+              AND city.latitude IS NULL AND city.longitude IS NULL
+            """)
+    Optional<City> findUnlocatedForUpdate(
+            @Param("countryCode") String countryCode, @Param("normalizedName") String normalizedName);
 
     @Query("""
             SELECT city

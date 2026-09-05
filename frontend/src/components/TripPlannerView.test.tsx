@@ -4,9 +4,10 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../api/client'
 
-vi.mock('../api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn() }))
+vi.mock('../api/planner', () => ({ createTripPlan: vi.fn(), refineTripPlan: vi.fn(), applyTripPlan: vi.fn() }))
 
-import { createTripPlan, refineTripPlan } from '../api/planner'
+import { applyTripPlan, createTripPlan, refineTripPlan } from '../api/planner'
+import type { Trip } from '../types/travel'
 import type { TripPlanningResponse } from '../api/planner'
 import { TripPlannerView } from './TripPlannerView'
 
@@ -15,12 +16,124 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.mocked(createTripPlan).mockReset()
   vi.mocked(refineTripPlan).mockReset()
+  vi.mocked(applyTripPlan).mockReset()
 })
 
 describe('TripPlannerView', () => {
+  it('requires an explicit create action, keeps the review visible and submits only once while pending', async () => {
+    let complete!: (trip: Trip) => void
+    const onCreated = vi.fn()
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(applyTripPlan).mockReturnValue(new Promise((resolve) => { complete = resolve }))
+    render(<TripPlannerView onBack={vi.fn()} onCreated={onCreated} />)
+    expect(screen.queryByRole('button', { name: 'Create Journey' })).toBeNull()
+    await createDraft()
+    expect(applyTripPlan).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Creating Journey…' }))
+    expect(applyTripPlan).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('heading', { name: 'Italy in October' })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('Creating Journey')
+    expect((screen.getByLabelText('How should this plan change?') as HTMLTextAreaElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'New plan' }) as HTMLButtonElement).disabled).toBe(true)
+    const trip = createdJourney()
+    await act(async () => complete(trip))
+    expect(onCreated).toHaveBeenCalledExactlyOnceWith(trip)
+  })
+
+  it.each([new Error('network'), new ApiError(503, 'APPLY_UNAVAILABLE')])(
+    'preserves the draft and adjustment input on %s and retries the same idempotency key', async (error) => {
+      vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+      vi.mocked(applyTripPlan).mockRejectedValueOnce(error).mockResolvedValue(createdJourney())
+      const onCreated = vi.fn()
+      render(<TripPlannerView onBack={vi.fn()} onCreated={onCreated} />)
+      await createDraft()
+      fireEvent.change(screen.getByLabelText('How should this plan change?'), { target: { value: 'Keep my ideas' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+      expect((await screen.findByRole('alert')).textContent).toContain('Retry to safely check the same request')
+      expect(screen.getByRole('heading', { name: 'Italy in October' })).toBeTruthy()
+      expect((screen.getByLabelText('How should this plan change?') as HTMLTextAreaElement).value).toBe('Keep my ideas')
+      fireEvent.click(screen.getByRole('button', { name: 'Adjust plan' }))
+      expect(document.activeElement).toBe(screen.getByLabelText('How should this plan change?'))
+      fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+      await act(async () => {})
+      expect(onCreated).toHaveBeenCalledTimes(1)
+      const [first, retry] = vi.mocked(applyTripPlan).mock.calls
+      expect(retry).toEqual(first)
+      expect(first?.[1]).toMatch(/^[0-9a-f-]{36}$/)
+    },
+  )
+
+  it.each(['refine', 'new'])('stops retrying a conflicted key until an explicit %s draft replaces it', async (replacement) => {
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(refineTripPlan).mockResolvedValue(planResponse('Adjusted Italy'))
+    vi.mocked(applyTripPlan).mockRejectedValueOnce(new ApiError(409, 'CONFLICT')).mockResolvedValue(createdJourney())
+    const onCreated = vi.fn()
+    render(<TripPlannerView onBack={vi.fn()} onCreated={onCreated} />)
+    await createDraft()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Check your Journeys')
+    const create = screen.getByRole('button', { name: 'Create Journey' }) as HTMLButtonElement
+    expect(create.disabled).toBe(true)
+    fireEvent.click(create)
+    expect(applyTripPlan).toHaveBeenCalledTimes(1)
+    if (replacement === 'refine') {
+      fireEvent.click(screen.getByRole('button', { name: 'Use fewer cities.' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+      await screen.findByRole('heading', { name: 'Adjusted Italy' })
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'New plan' }))
+      await createDraft()
+    }
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await act(async () => {})
+    expect(onCreated).toHaveBeenCalledTimes(1)
+    const [first, next] = vi.mocked(applyTripPlan).mock.calls
+    expect(next?.[1]).not.toBe(first?.[1])
+  })
+
+  it('uses a new request key after refinement and New plan while never applying automatically', async () => {
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(applyTripPlan).mockRejectedValue(new ApiError(400, 'PLACE_UNRESOLVED'))
+    vi.mocked(refineTripPlan).mockResolvedValue(planResponse('Adjusted Italy'))
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
+    await createDraft()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await screen.findByRole('alert')
+    fireEvent.change(screen.getByLabelText('How should this plan change?'), { target: { value: 'Resolve again' } })
+    fireEvent.keyDown(screen.getByLabelText('How should this plan change?'), { key: 'Enter' })
+    expect(applyTripPlan).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Update plan' }))
+    await screen.findByRole('heading', { name: 'Adjusted Italy' })
+    expect(applyTripPlan).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: 'New plan' }))
+    expect(screen.queryByRole('button', { name: 'Create Journey' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    await createDraft()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    await screen.findByRole('alert')
+    expect(new Set(vi.mocked(applyTripPlan).mock.calls.map((call) => call[1])).size).toBe(3)
+  })
+
+  it('ignores an apply response after the planner unmounts', async () => {
+    let complete!: (trip: Trip) => void
+    vi.mocked(createTripPlan).mockResolvedValue(planResponse())
+    vi.mocked(applyTripPlan).mockReturnValue(new Promise((resolve) => { complete = resolve }))
+    const onCreated = vi.fn()
+    const view = render(<TripPlannerView onBack={vi.fn()} onCreated={onCreated} />)
+    await createDraft()
+    fireEvent.click(screen.getByRole('button', { name: 'Create Journey' }))
+    view.unmount()
+    await act(async () => complete(createdJourney()))
+    expect(onCreated).not.toHaveBeenCalled()
+  })
+
   it('submits a trimmed natural-language request and renders a structured editorial plan', async () => {
     vi.mocked(createTripPlan).mockResolvedValue(planResponse())
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     const submit = screen.getByRole('button', { name: 'Create draft' })
 
     expect((submit as HTMLButtonElement).disabled).toBe(true)
@@ -44,7 +157,7 @@ describe('TripPlannerView', () => {
 
   it('shows a loading state while the draft is being created', () => {
     vi.mocked(createTripPlan).mockReturnValue(new Promise(() => {}))
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Plan Italy' },
     })
@@ -62,7 +175,7 @@ describe('TripPlannerView', () => {
     refined.plan.durationDays = 4
     vi.mocked(createTripPlan).mockResolvedValue(initial)
     vi.mocked(refineTripPlan).mockResolvedValue(refined)
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Plan Italy' },
     })
@@ -84,7 +197,7 @@ describe('TripPlannerView', () => {
     let resolveRefinement!: (value: TripPlanningResponse) => void
     vi.mocked(createTripPlan).mockResolvedValue(planResponse())
     vi.mocked(refineTripPlan).mockReturnValue(new Promise((resolve) => { resolveRefinement = resolve }))
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Plan Italy' },
     })
@@ -111,7 +224,7 @@ describe('TripPlannerView', () => {
     vi.mocked(refineTripPlan)
       .mockRejectedValueOnce(new ApiError(502, 'AI_INVALID_PLAN'))
       .mockResolvedValueOnce(planResponse('Retried Italy'))
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Plan Italy' },
     })
@@ -134,7 +247,7 @@ describe('TripPlannerView', () => {
 
   it('starts a new plan without persisting the previous result', async () => {
     vi.mocked(createTripPlan).mockResolvedValue(planResponse())
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', {
       name: 'Plan 7 relaxed days in Italy focused on food and architecture.',
     }))
@@ -150,7 +263,7 @@ describe('TripPlannerView', () => {
 
   it('shows controlled recoverable errors', async () => {
     vi.mocked(createTripPlan).mockRejectedValue(new ApiError(502, 'AI_INVALID_PLAN'))
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Conflicting request' },
     })
@@ -164,7 +277,7 @@ describe('TripPlannerView', () => {
     const response = planResponse()
     response.plan.summary = '<img src=x onerror=alert(1)>A safe summary'
     vi.mocked(createTripPlan).mockResolvedValue(response)
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Safe plan' },
     })
@@ -181,7 +294,7 @@ describe('TripPlannerView', () => {
     refined.plan.summary = '<img src=x onerror=alert(1)>Still safe'
     vi.mocked(createTripPlan).mockResolvedValue(planResponse())
     vi.mocked(refineTripPlan).mockResolvedValue(refined)
-    render(<TripPlannerView onBack={vi.fn()} />)
+    render(<TripPlannerView onBack={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), {
       target: { value: 'Plan Italy' },
     })
@@ -242,4 +355,14 @@ function planResponse(title = 'Italy in October'): TripPlanningResponse {
       sourcesUsed: ['Bucket List', 'Place Search'],
     },
   }
+}
+
+async function createDraft() {
+  fireEvent.change(screen.getByLabelText('What kind of trip are you imagining?'), { target: { value: 'Plan Italy' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create draft' }))
+  await screen.findByRole('heading', { name: 'Italy in October' })
+}
+
+function createdJourney(): Trip {
+  return { id: 'created', name: 'Italy in October', startDate: null, endDate: null, description: null, stops: [] }
 }

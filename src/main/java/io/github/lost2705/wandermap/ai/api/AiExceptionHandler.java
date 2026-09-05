@@ -6,6 +6,9 @@ import io.github.lost2705.wandermap.ai.application.AgentToolCallLimitException;
 import io.github.lost2705.wandermap.ai.application.AiProviderException;
 import io.github.lost2705.wandermap.ai.application.InvalidTripPlanException;
 import io.github.lost2705.wandermap.ai.application.InvalidTripPlanRequestException;
+import io.github.lost2705.wandermap.ai.application.TripPlanApplyConflictException;
+import io.github.lost2705.wandermap.ai.application.TripPlanApplyUnavailableException;
+import io.github.lost2705.wandermap.travel.application.PlaceUnresolvedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -13,6 +16,24 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class AiExceptionHandler {
+
+    @ExceptionHandler(TripPlanApplyUnavailableException.class)
+    ProblemDetail handleApplyUnavailable(TripPlanApplyUnavailableException exception) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "Journey creation unavailable",
+                "Journey creation could not be confirmed. Retry the same request.", "APPLY_UNAVAILABLE");
+    }
+
+    @ExceptionHandler(TripPlanApplyConflictException.class)
+    ProblemDetail handleApplyConflict(TripPlanApplyConflictException exception) {
+        return problem(HttpStatus.CONFLICT, "Journey creation conflict",
+                "This creation request was already used for another plan or a deleted Journey.", "CONFLICT");
+    }
+
+    @ExceptionHandler(PlaceUnresolvedException.class)
+    ProblemDetail handleUnresolvedPlace(PlaceUnresolvedException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Place could not be verified",
+                "A place in this draft could not be verified. Adjust the plan and try again.", "PLACE_UNRESOLVED");
+    }
 
     @ExceptionHandler(InvalidTripPlanRequestException.class)
     ProblemDetail handleInvalidPlanRequest(InvalidTripPlanRequestException exception) {

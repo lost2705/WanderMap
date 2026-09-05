@@ -5,6 +5,10 @@ import io.github.lost2705.wandermap.ai.api.dto.TripPlanRefinementRequest;
 import io.github.lost2705.wandermap.ai.api.dto.TripPlanningResponse;
 import io.github.lost2705.wandermap.ai.application.TripPlanningResult;
 import io.github.lost2705.wandermap.ai.application.TripPlanningService;
+import io.github.lost2705.wandermap.ai.application.TripPlanApplyService;
+import io.github.lost2705.wandermap.ai.api.dto.TripPlanApplyRequest;
+import io.github.lost2705.wandermap.travel.api.TravelApiMapper;
+import io.github.lost2705.wandermap.travel.api.dto.TripResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,9 +20,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class TripPlanningController {
 
     private final TripPlanningService tripPlanningService;
+    private final TripPlanApplyService tripPlanApplyService;
 
-    public TripPlanningController(TripPlanningService tripPlanningService) {
+    public TripPlanningController(TripPlanningService tripPlanningService, TripPlanApplyService tripPlanApplyService) {
         this.tripPlanningService = tripPlanningService;
+        this.tripPlanApplyService = tripPlanApplyService;
+    }
+
+    @PostMapping("/apply")
+    public TripResponse applyDraft(@Valid @RequestBody TripPlanApplyRequest request) {
+        return TravelApiMapper.toResponse(tripPlanApplyService.apply(request.plan(), request.requestId()));
     }
 
     @PostMapping

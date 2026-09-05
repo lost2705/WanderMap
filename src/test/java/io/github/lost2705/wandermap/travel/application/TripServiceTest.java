@@ -239,7 +239,7 @@ class TripServiceTest {
         when(cityLocationResolver.resolve("IT", "florence")).thenReturn(Optional.of(location));
         when(cityRepository.findByIdentity("IT", "florence", location.latitude(), location.longitude()))
                 .thenReturn(Optional.empty());
-        when(cityRepository.findByIdentity("IT", "florence", null, null)).thenReturn(Optional.empty());
+        when(cityRepository.findUnlocatedForUpdate("IT", "florence")).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tripRepository.save(trip)).thenReturn(trip);
 
@@ -258,7 +258,7 @@ class TripServiceTest {
         when(cityRepository.findByIdentity(
                         "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
                 .thenReturn(Optional.empty());
-        when(cityRepository.findByIdentity("IT", "lucca", null, null)).thenReturn(Optional.empty());
+        when(cityRepository.findUnlocatedForUpdate("IT", "lucca")).thenReturn(Optional.empty());
         when(cityRepository.save(any(City.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tripRepository.save(trip)).thenReturn(trip);
 
@@ -328,7 +328,7 @@ class TripServiceTest {
         when(cityRepository.findByIdentity(
                         "IT", "lucca", new BigDecimal("43.842900"), new BigDecimal("10.502700")))
                 .thenReturn(Optional.empty());
-        when(cityRepository.findByIdentity("IT", "lucca", null, null)).thenReturn(Optional.of(lucca));
+        when(cityRepository.findUnlocatedForUpdate("IT", "lucca")).thenReturn(Optional.of(lucca));
         when(tripRepository.save(trip)).thenReturn(trip);
 
         TripStop stop = tripService.addStop(trip.getId(), "IT", "Lucca", latitude, longitude);

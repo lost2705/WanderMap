@@ -11,6 +11,30 @@ import org.springframework.boot.test.context.SpringBootTest;
 class AiAssistantDisabledApiIT extends AuthenticatedIntegrationTestSupport {
 
     @Test
+    void deterministicApplyWorksWithTheRealDisabledModelClient() throws Exception {
+        var tripRequest = csrf(authenticatedRequest("/api/trips")).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"Known Italy\"}")).build();
+        var trip = objectMapper.readTree(httpClient.send(tripRequest, HttpResponse.BodyHandlers.ofString()).body());
+        var stopRequest = csrf(authenticatedRequest("/api/trips/" + trip.path("id").asText() + "/stops"))
+                .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("""
+                        {"cityName":"Rome","countryCode":"IT","latitude":41.9028,"longitude":12.4964}
+                        """)).build();
+        assertThat(httpClient.send(stopRequest, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(201);
+        var apply = csrf(authenticatedRequest("/api/ai/trip-plan/apply")).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"requestId":"%s","plan":{"title":"Rome without AI","summary":"A draft.","durationDays":1,
+                         "startDate":null,"endDate":null,"destinationSummary":"Rome","pace":"RELAXED",
+                         "stops":[{"cityName":"Rome","countryCode":"IT","countryName":"Italy",
+                         "latitude":41.9028,"longitude":12.4964,"daysAtStop":1,"reason":"A good fit.",
+                         "activities":[],"bucketListMatch":false,"alreadyVisited":false}],
+                         "considerations":[],"sourcesUsed":[]}}
+                        """.formatted(java.util.UUID.randomUUID()))).build();
+        var response = httpClient.send(apply, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(objectMapper.readTree(response.body()).path("name").asText()).isEqualTo("Rome without AI");
+    }
+
+    @Test
     void disabledByDefaultReturnsAControlledUnavailableResponse() throws Exception {
         HttpRequest request = csrf(authenticatedRequest("/api/ai/travel-assistant"))
                 .header("Content-Type", "application/json")
