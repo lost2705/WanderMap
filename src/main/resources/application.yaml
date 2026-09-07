@@ -29,6 +29,10 @@ management:
         include: health
 
 wandermap:
+  city-boundaries:
+    external-enabled: ${WANDERMAP_CITY_BOUNDARIES_EXTERNAL_ENABLED:false}
+    base-url: ${WANDERMAP_CITY_BOUNDARIES_BASE_URL:}
+    user-agent: ${WANDERMAP_CITY_BOUNDARIES_USER_AGENT:}
   auth:
     jwt-secret: ${WANDERMAP_JWT_SECRET:}
     token-ttl: ${WANDERMAP_AUTH_TOKEN_TTL:12h}

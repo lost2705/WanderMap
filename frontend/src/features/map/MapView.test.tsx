@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BucketListItem, Trip, TripMapOverview } from '../../types/travel'
+import { getCityBoundary } from '../../api/cityBoundaries'
+import { CITY_BOUNDARY_SOURCE_ID, CITY_BOUNDARY_FILL_ID } from './cityBoundaryLayers'
+
+vi.mock('../../api/cityBoundaries', () => ({ getCityBoundary: vi.fn() }))
 import {
   BUCKET_LIST_RING_LAYER_ID,
   BUCKET_LIST_SOURCE_ID,
@@ -23,6 +27,8 @@ import {
 } from './worldPlaceLayers'
 
 const mapLifecycle = vi.hoisted(() => ({
+  zoom: 2,
+  reload: () => {},
   construct: vi.fn(),
   dragRotateDisable: vi.fn(),
   touchRotationDisable: vi.fn(),
@@ -88,6 +94,11 @@ vi.mock('maplibre-gl', () => {
       this.canvas = document.createElement('canvas')
       this.canvas.className = 'maplibregl-canvas'
       options.container.append(this.canvas)
+      mapLifecycle.reload = () => {
+        this.sources.clear()
+        this.layers.clear()
+        mapLifecycle.events.get('style.load')?.forEach((listener) => listener({}))
+      }
     }
 
     addControl() {}
@@ -122,6 +133,9 @@ vi.mock('maplibre-gl', () => {
     easeTo(options: unknown) { mapLifecycle.easeTo(options) }
     project() { return { x: 0, y: 0 } }
     getCanvas() { return this.canvas }
+    getZoom() { return mapLifecycle.zoom }
+    getBounds() { return { contains: () => true } }
+    getCenter() { return { lng: 12.5, lat: 41.9 } }
     getStyle() {
       return {
         layers: [...baseStyleLayers, ...this.layers.values()],
@@ -129,6 +143,7 @@ vi.mock('maplibre-gl', () => {
     }
     getSource(id: string) { return this.sources.get(id) }
     addSource(id: string, specification: unknown) {
+      if (this.sources.has(id)) throw new Error(`Duplicate source: ${id}`)
       this.sources.set(id, {
         setData: vi.fn((data: unknown) => mapLifecycle.sourceSetData(id, data)),
         getClusterExpansionZoom: mapLifecycle.clusterExpansionZoom,
@@ -138,6 +153,7 @@ vi.mock('maplibre-gl', () => {
     removeSource(id: string) { this.sources.delete(id) }
     getLayer(id: string) { return this.layers.get(id) ?? baseStyleLayers.find((layer) => layer.id === id) }
     addLayer(specification: { id: string }, beforeId?: string) {
+      if (this.getLayer(specification.id)) throw new Error(`Duplicate layer: ${specification.id}`)
       this.layers.set(specification.id, specification)
       mapLifecycle.addLayer(specification, beforeId)
     }
@@ -182,6 +198,8 @@ vi.mock('maplibre-gl', () => {
 import { MapView } from './MapView'
 
 beforeEach(() => {
+  mapLifecycle.zoom = 2
+  vi.mocked(getCityBoundary).mockResolvedValue({ status: 'UNAVAILABLE', geometry: null, stale: false, retryAfterSeconds: 300 })
   mapLifecycle.listeners.clear()
   mapLifecycle.events.clear()
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -251,6 +269,55 @@ afterEach(() => {
 })
 
 describe('MapView country highlight lifecycle', () => {
+  it('renders a real boundary, survives style reload and theme/World-Journey transitions without another map or camera fit', async () => {
+    mapLifecycle.zoom = 9
+    vi.mocked(getCityBoundary).mockResolvedValue({ status: 'AVAILABLE', stale: false, retryAfterSeconds: 300,
+      geometry: { type: 'MultiPolygon', coordinates: [[[[12, 41], [13, 41], [13, 42], [12, 41]]]] } })
+    const props = { overview: mapOverview(), trips: [], onSelectPlace: vi.fn() }
+    const view = render(<MapView {...props} selectedTrip={null} />)
+    await waitFor(() => expect(boundaryData()?.features).toHaveLength(1))
+    expect(boundaryData()?.features[0]).toMatchObject({ id: 'city-rome', properties: { cityId: 'city-rome' } })
+    expect(mapLifecycle.setFilter).toHaveBeenCalledWith(WORLD_PLACE_AREA_CORE_LAYER_ID,
+      ['all', ['!', ['has', 'point_count']], ['!', ['in', ['get', 'cityId'], ['literal', ['city-rome']]]]])
+    const cameraCalls = mapLifecycle.jumpTo.mock.calls.length
+    act(() => mapLifecycle.reload())
+    await waitFor(() => expect(mapLifecycle.addSource.mock.calls.filter(([id]) => id === CITY_BOUNDARY_SOURCE_ID)).toHaveLength(2))
+    expect(boundaryData()?.features).toHaveLength(1)
+    expect(worldPlaceSourceCalls()).toHaveLength(2)
+    expect(mapLifecycle.addSource.mock.calls.filter(([id]) => id === CITY_BOUNDARY_SOURCE_ID).map(([, source]) => source))
+      .toEqual([expect.objectContaining({ attribution: expect.stringContaining('(city boundaries, ODbL)') }),
+        expect.objectContaining({ attribution: expect.stringContaining('(city boundaries, ODbL)') })])
+    expect(mapLifecycle.setLayoutProperty).toHaveBeenCalledWith(CITY_BOUNDARY_FILL_ID, 'visibility', 'visible')
+    expect(mapLifecycle.jumpTo).toHaveBeenCalledTimes(cameraCalls)
+    expect(getCityBoundary).toHaveBeenCalledTimes(1)
+    document.documentElement.dataset.theme = 'midnight'
+    await waitFor(() => expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(CITY_BOUNDARY_FILL_ID, 'fill-color', '#f09a68'))
+    expect(worldPlaceSourceCalls()).toHaveLength(2)
+    view.rerender(<MapView {...props} selectedTrip={tripWithCountries('italy', 'IT')} />)
+    expect(boundaryData()?.features).toHaveLength(0)
+    expect(mapLifecycle.setPaintProperty).toHaveBeenCalledWith(COUNTRY_HIGHLIGHT_LAYER_ID, 'fill-opacity', JOURNEY_COUNTRY_HIGHLIGHT_OPACITY)
+    view.rerender(<MapView {...props} selectedTrip={null} />)
+    expect(boundaryData()?.features).toHaveLength(1)
+    expect(mapLifecycle.construct).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelectorAll('.maplibregl-canvas')).toHaveLength(1)
+    view.unmount()
+    expect(mapLifecycle.events.get('idle')?.size).toBe(0)
+    expect(mapLifecycle.events.get('moveend')?.size).toBe(0)
+  })
+
+  it('does not preload polygons at distant zoom and clears rendered visited geometry when overview changes', async () => {
+    const props = { trips: [], onSelectPlace: vi.fn(), selectedTrip: null }
+    const view = render(<MapView {...props} overview={mapOverview()} />)
+    await waitFor(() => expect(worldPlaceSourceCalls()).toHaveLength(1))
+    expect(getCityBoundary).not.toHaveBeenCalled()
+    expect(mapLifecycle.addLayer).toHaveBeenCalledWith(expect.objectContaining({ id: CITY_BOUNDARY_FILL_ID, minzoom: 8 }), expect.anything())
+    mapLifecycle.zoom = 9
+    act(() => mapLifecycle.events.get('moveend')?.forEach((listener) => listener({})))
+    await waitFor(() => expect(getCityBoundary).toHaveBeenCalledTimes(1))
+    view.rerender(<MapView {...props} overview={{ visitedCountryCodes: [], markers: [], memoryCount: 0 }} />)
+    expect(boundaryData()?.features).toHaveLength(0)
+  })
+
   it('resets to the atlas only on World entry or an explicit reset, not theme/routes/data/resize', async () => {
     const props = { overview: selectedRouteOverview(), trips: [], onSelectPlace: vi.fn() }
     const view = render(<MapView {...props} selectedTrip={null} />)
@@ -737,6 +804,10 @@ function bucketListSourceDataCalls() {
 function worldPlaceSourceDataCalls() {
   return mapLifecycle.sourceSetData.mock.calls
     .filter(([id]) => id === WORLD_PLACE_SOURCE_ID)
+}
+
+function boundaryData(): { features: { id: string; properties: { cityId: string } }[] } | undefined {
+  return mapLifecycle.sourceSetData.mock.calls.filter(([id]) => id === CITY_BOUNDARY_SOURCE_ID).at(-1)?.[1]
 }
 
 function routeSourceDataCalls() {

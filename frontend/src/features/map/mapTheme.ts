@@ -1,5 +1,6 @@
 import type { WorldPlaceColors } from './worldPlaceLayers'
 import type { BucketListColors } from './bucketListLayers'
+import type { CityBoundaryColors } from './cityBoundaryLayers'
 
 const DEFAULT_COUNTRY_FILL = '#df8a5f'
 const DEFAULT_SELECTED_ROUTE = '#bd5426'
@@ -25,6 +26,7 @@ export interface BasemapPalette {
 }
 
 export interface MapThemeColors {
+  cityBoundaries: CityBoundaryColors
   countryFill: string
   selectedRoute: string
   bucketPlaces: BucketListColors
@@ -38,6 +40,10 @@ export function mapThemeColors(): MapThemeColors {
   const marker = color('--color-map-marker', DEFAULT_MAP_MARKER)
 
   return {
+    cityBoundaries: {
+      fill: color('--color-map-visited-area', DEFAULT_MAP_VISITED_AREA),
+      outline: color('--color-map-visited-area-core', DEFAULT_MAP_VISITED_AREA_CORE),
+    },
     countryFill: color('--color-map-country-fill', DEFAULT_COUNTRY_FILL),
     selectedRoute: color('--color-map-route', DEFAULT_SELECTED_ROUTE),
     bucketPlaces: {

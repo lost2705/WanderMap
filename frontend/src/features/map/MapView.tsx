@@ -49,6 +49,8 @@ import {
 } from './mapData'
 import type { DisplayMarker } from './mapData'
 import { mapThemeColors } from './mapTheme'
+import { CityBoundaryController } from './cityBoundaryController'
+import { updateCityBoundaryColors } from './cityBoundaryLayers'
 import {
   ensureTripRouteLayers,
   removeTripRouteLayers,
@@ -87,6 +89,8 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRefs = useRef<MapMarkerReference[]>([])
   const basemapLayersRef = useRef<BasemapLayerIndex | null>(null)
+  const cityBoundariesRef = useRef<CityBoundaryController | null>(null)
+  const [styleRevision, setStyleRevision] = useState(0)
   const [readyMap, setReadyMap] = useState<maplibregl.Map | null>(null)
   const [countryBoundaryData, setCountryBoundaryData] = useState<CountryBoundaryData | null>(null)
   const [showGlobalRoutes, setShowGlobalRoutes] = useState(false)
@@ -151,7 +155,6 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, showZoom: true }), 'top-right')
 
     const isActiveMap = () => mapRef.current === map
-    let isReady = false
     const updateViewportLimit = () => {
       if (isActiveMap()) {
         viewportWidth = map.getContainer().clientWidth
@@ -161,19 +164,19 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
       }
     }
     const markMapReady = () => {
-      if (!isActiveMap() || isReady) {
+      if (!isActiveMap()) {
         return
       }
 
-      isReady = true
       const basemapLayers = discoverBasemapLayers(map.getStyle()?.layers ?? [])
       basemapLayersRef.current = basemapLayers
       configureBasemapHierarchy(map, basemapLayers)
       applyBasemapPalette(map, basemapLayers, mapThemeColors().basemap)
       setReadyMap(map)
+      setStyleRevision((revision) => revision + 1)
     }
 
-    map.once('style.load', markMapReady)
+    map.on('style.load', markMapReady)
     map.on('resize', updateViewportLimit)
     if (map.isStyleLoaded()) {
       markMapReady()
@@ -183,6 +186,8 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
       map.off('style.load', markMapReady)
       map.off('resize', updateViewportLimit)
       if (mapRef.current === map) {
+        cityBoundariesRef.current?.dispose()
+        cityBoundariesRef.current = null
         markerRefs.current.forEach(({ marker }) => marker.remove())
         markerRefs.current = []
         basemapLayersRef.current = null
@@ -212,7 +217,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
         removeCountryHighlightLayer(map)
       }
     }
-  }, [readyMap, countryBoundaryData])
+  }, [readyMap, countryBoundaryData, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -225,7 +230,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
       map,
       selectedTrip ? JOURNEY_COUNTRY_HIGHLIGHT_OPACITY : WORLD_COUNTRY_HIGHLIGHT_OPACITY,
     )
-  }, [readyMap, countryBoundaryData, visitedCountryCodesKey, selectedTrip])
+  }, [readyMap, countryBoundaryData, visitedCountryCodesKey, selectedTrip, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -240,7 +245,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
         removeWorldPlaceLayers(map)
       }
     }
-  }, [readyMap])
+  }, [readyMap, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -258,7 +263,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     }
 
     updateWorldPlaceData(map, worldPlaceData)
-  }, [readyMap, worldPlaceDataKey])
+  }, [readyMap, worldPlaceDataKey, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -267,7 +272,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     }
 
     updateWorldPlaceVisibility(map, selectedTrip === null)
-  }, [readyMap, selectedTrip])
+  }, [readyMap, selectedTrip, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -281,7 +286,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
         removeBucketListLayers(map)
       }
     }
-  }, [readyMap])
+  }, [readyMap, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -296,14 +301,14 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     if (map) {
       updateBucketListData(map, bucketListData)
     }
-  }, [readyMap, bucketListDataKey])
+  }, [readyMap, bucketListDataKey, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
     if (map) {
       updateBucketListVisibility(map, selectedTrip === null)
     }
-  }, [readyMap, selectedTrip])
+  }, [readyMap, selectedTrip, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -319,7 +324,24 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
       }
       removeTripRouteLayers(map)
     }
+  }, [readyMap, styleRevision])
+
+  useEffect(() => {
+    const map = activeReadyMap(readyMap, mapRef.current)
+    if (!map) return
+    const controller = new CityBoundaryController(map)
+    cityBoundariesRef.current = controller
+    return () => {
+      if (cityBoundariesRef.current === controller) {
+        controller.dispose()
+        cityBoundariesRef.current = null
+      }
+    }
   }, [readyMap])
+
+  useEffect(() => {
+    cityBoundariesRef.current?.update(worldPlaceData, selectedTrip === null, onSelectPlace)
+  }, [readyMap, worldPlaceDataKey, selectedTrip, onSelectPlace, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -333,6 +355,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
       updateTripRouteColor(map, selectedTrip ? colors.selectedRoute : null)
       updateWorldPlaceColors(map, colors.worldPlaces)
       updateBucketListColors(map, colors.bucketPlaces)
+      updateCityBoundaryColors(map, colors.cityBoundaries)
       if (basemapLayersRef.current) {
         applyBasemapPalette(map, basemapLayersRef.current, colors.basemap)
       }
@@ -342,7 +365,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
     return () => observer.disconnect()
-  }, [readyMap, selectedTrip])
+  }, [readyMap, selectedTrip, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)
@@ -351,7 +374,7 @@ export function MapView({ bucketListItems = [], overview, selectedTrip, trips, o
     }
 
     updateTripRouteData(map, routeData)
-  }, [readyMap, routeDataKey])
+  }, [readyMap, routeDataKey, styleRevision])
 
   useEffect(() => {
     const map = activeReadyMap(readyMap, mapRef.current)

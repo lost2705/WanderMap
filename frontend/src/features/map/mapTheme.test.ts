@@ -18,6 +18,11 @@ afterEach(() => {
 })
 
 describe('World travel-data palette', () => {
+  it.each(['terracotta', 'sage', 'ocean', 'lavender', 'burgundy', 'midnight'])('%s uses semantic visited-area colors for real boundaries', (theme) => {
+    applyTestTheme(theme)
+    const { cityBoundaries, worldPlaces } = mapThemeColors()
+    expect(cityBoundaries).toEqual({ fill: worldPlaces.area, outline: worldPlaces.areaCore })
+  })
   it.each(['terracotta', 'sage', 'ocean', 'lavender', 'burgundy', 'midnight'])('%s keeps cluster text readable', (theme) => {
     applyTestTheme(theme)
     const { worldPlaces } = mapThemeColors()
