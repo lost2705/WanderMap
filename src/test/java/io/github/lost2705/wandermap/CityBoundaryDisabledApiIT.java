@@ -51,7 +51,7 @@ class CityBoundaryDisabledApiIT extends AuthenticatedIntegrationTestSupport {
         Instant now = Instant.now();
         var lease = cache.claim(city.getId(), now).orElseThrow();
         cache.saveAvailable(city.getId(), new CityBoundaryClient.Candidate("test", "1", Set.of(city.getName()), "IT",
-                CityBoundaryClient.Kind.MUNICIPALITY, geometry), verified, lease, now, Duration.ofDays(30));
+                CityBoundaryClient.Kind.MUNICIPALITY, 16, 8, geometry), verified, lease, now, Duration.ofDays(30));
         assertThat(httpClient.send(authenticatedRequest(path).GET().build(), HttpResponse.BodyHandlers.ofString()).body()).contains("AVAILABLE", "MultiPolygon");
         verifyNoInteractions(provider);
     }

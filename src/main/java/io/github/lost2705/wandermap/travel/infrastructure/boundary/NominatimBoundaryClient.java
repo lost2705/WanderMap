@@ -33,7 +33,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class NominatimBoundaryClient implements CityBoundaryClient {
     static final int MAX_RESPONSE_BYTES = 3000000;
-    private static final Set<String> LOCALITY_TYPES = Set.of("city", "town", "village", "municipality");
     private final boolean enabled;
     private final URI endpoint;
     private final String userAgent;
@@ -121,18 +120,19 @@ public class NominatimBoundaryClient implements CityBoundaryClient {
                 if (!candidate.isObject() || !candidate.path("category").isString() || !candidate.path("type").isString()) {
                     throw new CityBoundaryLookupException();
                 }
-                // Nominatim's address classification is country-aware; no universal admin_level = city rule.
-                // Also require administrative geometry and a plausible locality rank, never a metro/region.
                 JsonNode rankNode = candidate.path("place_rank");
-                if (!rankNode.isMissingNode() && (!rankNode.isIntegralNumber() || !rankNode.canConvertToInt())) {
+                if (!rankNode.isIntegralNumber() || !rankNode.canConvertToInt()) {
                     throw new CityBoundaryLookupException();
                 }
-                int rank = rankNode.asInt(-1);
-                String addressType = candidate.path("addresstype").asText();
+                int rank = rankNode.asInt();
+                JsonNode addressTypeNode = candidate.path("addresstype");
+                if (!addressTypeNode.isString() || addressTypeNode.asText().length() > 40 || rank < 0 || rank > 30) {
+                    throw new CityBoundaryLookupException();
+                }
+                String addressType = addressTypeNode.asText();
                 String admin = candidate.path("extratags").path("admin_level").asText();
                 if (!"boundary".equals(candidate.path("category").asText())
                         || !"administrative".equals(candidate.path("type").asText())
-                        || !LOCALITY_TYPES.contains(addressType) || rank < 13 || rank > 18
                         || !admin.matches("[4-9]|10") || !"relation".equals(candidate.path("osm_type").asText())) {
                     continue;
                 }
@@ -162,12 +162,23 @@ public class NominatimBoundaryClient implements CityBoundaryClient {
                     throw new CityBoundaryLookupException();
                 }
                 results.add(new Candidate("openstreetmap", "relation/" + id, Set.copyOf(names), country,
-                        Kind.MUNICIPALITY, CityBoundaryGeometry.fromJson(geometry)));
+                        kind(addressType), rank, Integer.parseInt(admin), CityBoundaryGeometry.fromJson(geometry)));
             }
             return List.copyOf(results);
         } catch (RuntimeException exception) {
             throw new CityBoundaryLookupException();
         }
+    }
+
+    private static Kind kind(String addressType) {
+        return switch (addressType) {
+            case "city" -> Kind.CITY;
+            case "town" -> Kind.TOWN;
+            case "village" -> Kind.VILLAGE;
+            case "municipality" -> Kind.MUNICIPALITY;
+            case "suburb", "city_district" -> Kind.SUBDIVISION;
+            default -> Kind.OTHER;
+        };
     }
 
     private static void addName(Set<String> names, JsonNode node) {

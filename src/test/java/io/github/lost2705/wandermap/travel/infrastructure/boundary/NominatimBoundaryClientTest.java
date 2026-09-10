@@ -50,20 +50,51 @@ class NominatimBoundaryClientTest {
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().boundaryId()).isEqualTo("relation/123");
         assertThat(result.getFirst().names()).containsExactlyInAnyOrder("Roma", "Rome");
-        assertThat(result.getFirst().kind()).isEqualTo(CityBoundaryClient.Kind.MUNICIPALITY);
+        assertThat(result.getFirst().kind()).isEqualTo(CityBoundaryClient.Kind.CITY);
+        assertThat(result.getFirst().searchRank()).isEqualTo(16);
+        assertThat(result.getFirst().adminLevel()).isEqualTo(8);
         assertThat(parser.parse(bytes(candidate("MultiPolygon", "[[[[12,41],[13,41],[13,42],[12,41]]]]"))))
                 .hasSize(1);
     }
 
     @Test
-    void ignoresRegionsWrongAdminLevelsPointsAndUnsupportedGeometry() {
+    void keepsSemanticMetadataForCountryPolicyButRejectsNonAdministrativeOrUnsupportedGeometry() {
         String valid = candidate("Polygon", "[[[12,41],[13,41],[13,42],[12,41]]]");
-        for (String payload : new String[] {valid.replace("\"city\"", "\"state\""),
-                valid.replace("\"8\"", "\"2\""), valid.replace("\"place_rank\":16", "\"place_rank\":8"),
+        assertThat(parser.parse(bytes(valid.replace("\"city\"", "\"state\""))).getFirst().kind())
+                .isEqualTo(CityBoundaryClient.Kind.OTHER);
+        assertThat(parser.parse(bytes(valid.replace("\"place_rank\":16", "\"place_rank\":8"))).getFirst().searchRank())
+                .isEqualTo(8);
+        for (String payload : new String[] {valid.replace("\"8\"", "\"2\""),
+                valid.replace("\"administrative\"", "\"political\""), valid.replace("\"relation\"", "\"way\""),
                 valid.replace("\"Polygon\"", "\"Point\"")}) {
             assertThat(parser.parse(bytes(payload))).isEmpty();
         }
         assertThat(parser.parse(bytes("[]"))).isEmpty();
+    }
+
+    @Test
+    void parsesRealParisCandidateClassificationsForApplicationResolution() {
+        String commune = candidate("Polygon", "[[[2.2,48.8],[2.5,48.8],[2.5,48.9],[2.2,48.8]]]")
+                .replace("\"city\"", "\"suburb\"").replace("\"place_rank\":16", "\"place_rank\":15")
+                .replace("\"osm_id\":123", "\"osm_id\":7444").replace("Roma", "Paris").replace("Rome", "Paris")
+                .replace("\"it\"", "\"fr\"");
+        String department = commune.replace("\"suburb\"", "\"city\"")
+                .replace("\"place_rank\":15", "\"place_rank\":12").replace("\"8\"", "\"6\"")
+                .replace("\"osm_id\":7444", "\"osm_id\":71525");
+        String arrondissement = commune.replace("\"suburb\"", "\"city_district\"")
+                .replace("\"place_rank\":15", "\"place_rank\":14").replace("\"8\"", "\"7\"")
+                .replace("\"osm_id\":7444", "\"osm_id\":1641193");
+
+        var candidates = parser.parse(bytes("[" + stripArray(commune) + "," + stripArray(department) + ","
+                + stripArray(arrondissement) + "]"));
+
+        assertThat(candidates).extracting(CityBoundaryClient.Candidate::boundaryId)
+                .containsExactly("relation/7444", "relation/71525", "relation/1641193");
+        assertThat(candidates).extracting(CityBoundaryClient.Candidate::kind)
+                .containsExactly(CityBoundaryClient.Kind.SUBDIVISION, CityBoundaryClient.Kind.CITY,
+                        CityBoundaryClient.Kind.SUBDIVISION);
+        assertThat(candidates).extracting(CityBoundaryClient.Candidate::searchRank).containsExactly(15, 12, 14);
+        assertThat(candidates).extracting(CityBoundaryClient.Candidate::adminLevel).containsExactly(8, 6, 7);
     }
 
     @ParameterizedTest
@@ -192,6 +223,7 @@ class NominatimBoundaryClientTest {
         return new NominatimBoundaryClient(true, "http://127.0.0.1:" + server.getAddress().getPort(), "WanderMap operator@example.com", timeout);
     }
     private static byte[] bytes(String value) { return value.getBytes(StandardCharsets.UTF_8); }
+    private static String stripArray(String value) { return value.trim().substring(1, value.trim().length() - 1); }
     private static String candidate(String type, String coordinates) {
         return """
                 [{"category":"boundary","type":"administrative","addresstype":"city","place_rank":16,

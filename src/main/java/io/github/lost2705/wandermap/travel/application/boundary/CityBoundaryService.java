@@ -32,6 +32,7 @@ public class CityBoundaryService {
     private final CurrentUserProvider users;
     private final CityBoundaryRepository cache;
     private final CityBoundaryClient client;
+    private final MunicipalityBoundaryPolicy policy = new MunicipalityBoundaryPolicy();
     private final boolean enabled;
     private final Clock clock;
 
@@ -95,20 +96,25 @@ public class CityBoundaryService {
                         || candidate.boundaryId() == null || candidate.boundaryId().length() > 100) {
                     throw new CityBoundaryLookupException();
                 }
-                if (candidate.kind() != CityBoundaryClient.Kind.MUNICIPALITY
-                        || !query.countryCode().equalsIgnoreCase(candidate.countryCode())
+                if (candidate.kind() == null || !query.countryCode().equalsIgnoreCase(candidate.countryCode())
                         || candidate.names().stream().noneMatch(name -> City.normalizeName(name).equals(city.getNormalizedName()))) {
                     continue;
                 }
+                int preference = policy.preference(query, candidate);
+                if (preference == MunicipalityBoundaryPolicy.REJECT) {
+                    continue;
+                }
                 cache.verify(candidate.geometry(), query).ifPresent(verified -> {
-                    var previous = matches.putIfAbsent(candidate.provider() + ":" + candidate.boundaryId(), new Match(candidate, verified));
-                    if (previous != null && !previous.candidate().geometry().equals(candidate.geometry())) {
+                    var previous = matches.putIfAbsent(candidate.provider() + ":" + candidate.boundaryId(),
+                            new Match(candidate, verified, preference));
+                    if (previous != null && !previous.candidate().equals(candidate)) {
                         throw new CityBoundaryLookupException();
                     }
                 });
             }
-            if (matches.size() == 1) {
-                Match match = matches.values().iterator().next();
+            var resolved = resolve(matches);
+            if (resolved.isPresent()) {
+                Match match = resolved.get();
                 cache.saveAvailable(cityId, match.candidate(), match.geometry(), lease.get(), clock.instant(), POSITIVE_TTL);
                 LOGGER.info("city_boundary.lookup.completed");
             } else {
@@ -132,5 +138,20 @@ public class CityBoundaryService {
         return new CityBoundaryResult(status, null, false, FAILURE_TTL.toSeconds());
     }
 
-    private record Match(CityBoundaryClient.Candidate candidate, CityBoundaryRepository.Verified geometry) {}
+    private static Optional<Match> resolve(LinkedHashMap<String, Match> matches) {
+        Match best = null;
+        boolean tied = false;
+        for (Match match : matches.values()) {
+            if (best == null || match.preference() > best.preference()) {
+                best = match;
+                tied = false;
+            } else if (match.preference() == best.preference()) {
+                tied = true;
+            }
+        }
+        return best == null || tied ? Optional.empty() : Optional.of(best);
+    }
+
+    private record Match(CityBoundaryClient.Candidate candidate, CityBoundaryRepository.Verified geometry,
+                         int preference) {}
 }

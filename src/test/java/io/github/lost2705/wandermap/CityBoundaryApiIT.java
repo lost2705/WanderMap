@@ -162,7 +162,7 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
         var winningLease = boundaries.claim(city.getId(), now.plusSeconds(31)).orElseThrow();
         var geometry = CityBoundaryGeometry.fromJson(objectMapper.readTree(polygon()));
         var candidate = new CityBoundaryClient.Candidate("test", "new", Set.of(city.getName()), "IT",
-                CityBoundaryClient.Kind.MUNICIPALITY, geometry);
+                CityBoundaryClient.Kind.MUNICIPALITY, 16, 8, geometry);
         var verified = boundaries.verify(geometry, new CityBoundaryClient.Query(city.getName(), "IT", city.getLatitude(), city.getLongitude())).orElseThrow();
         assertThat(boundaries.saveAvailable(city.getId(), candidate, verified, winningLease,
                 now.plusSeconds(32), java.time.Duration.ofDays(30))).isTrue();
@@ -235,7 +235,7 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
     }
     private void candidate(City city, String geometry) {
         when(provider.findCandidates(any())).thenReturn(List.of(new CityBoundaryClient.Candidate("test", "123", Set.of(city.getName()), "IT",
-                CityBoundaryClient.Kind.MUNICIPALITY, CityBoundaryGeometry.fromJson(objectMapper.readTree(geometry)))));
+                CityBoundaryClient.Kind.MUNICIPALITY, 16, 8, CityBoundaryGeometry.fromJson(objectMapper.readTree(geometry)))));
     }
     private void expire(City city) {
         jdbc.sql("UPDATE city_boundaries SET retry_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE city_id = ?").param(city.getId()).update();
