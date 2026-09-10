@@ -41,6 +41,7 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
     @Test
     void persistsPolygonAsWgs84MultiPolygonAndServesCacheAfterRepositoryRecreation() throws Exception {
         City city = visit();
+        assertThat(boundaries.find(city.getId())).isEmpty();
         candidate(city, polygon());
         var response = get(city);
         assertThat(response.statusCode()).isEqualTo(200);
@@ -51,6 +52,26 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
         assertThat(response.body()).doesNotContain("provider", "relation", "user", "trip", "visited");
         assertThat(jdbc.sql("SELECT ST_SRID(geometry) FROM city_boundaries WHERE city_id = ?").param(city.getId()).query(Integer.class).single()).isEqualTo(4326);
         assertThat(new CityBoundaryRepository(jdbc, objectMapper).find(city.getId()).orElseThrow().geometry()).isNotNull();
+        assertThat(get(city).body()).contains("AVAILABLE");
+        verify(provider, times(1)).findCandidates(any());
+    }
+
+    @Test
+    void cacheMissUsesCountryPolicyAndPersistsTheSelectedMunicipality() throws Exception {
+        City city = visit("NL", "Amsterdam " + UUID.randomUUID(), new BigDecimal("52.370216"),
+                new BigDecimal("4.895168"));
+        var geometry = CityBoundaryGeometry.fromJson(objectMapper.readTree(
+                "{\"type\":\"Polygon\",\"coordinates\":[[[4,52],[5,52],[5,53],[4,53],[4,52]]]}"));
+        when(provider.findCandidates(any())).thenReturn(List.of(
+                new CityBoundaryClient.Candidate("test", "relation/271110", Set.of(city.getName()), "NL",
+                        CityBoundaryClient.Kind.CITY, 16, 10, geometry),
+                new CityBoundaryClient.Candidate("test", "relation/47811", Set.of(city.getName()), "NL",
+                        CityBoundaryClient.Kind.MUNICIPALITY, 14, 8, geometry)));
+
+        assertThat(boundaries.find(city.getId())).isEmpty();
+        assertThat(objectMapper.readTree(get(city).body()).path("status").asText()).isEqualTo("AVAILABLE");
+        assertThat(jdbc.sql("SELECT provider_boundary_id FROM city_boundaries WHERE city_id = ?")
+                .param(city.getId()).query(String.class).single()).isEqualTo("relation/47811");
         assertThat(get(city).body()).contains("AVAILABLE");
         verify(provider, times(1)).findCandidates(any());
     }
@@ -162,7 +183,7 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
         var winningLease = boundaries.claim(city.getId(), now.plusSeconds(31)).orElseThrow();
         var geometry = CityBoundaryGeometry.fromJson(objectMapper.readTree(polygon()));
         var candidate = new CityBoundaryClient.Candidate("test", "new", Set.of(city.getName()), "IT",
-                CityBoundaryClient.Kind.MUNICIPALITY, geometry);
+                CityBoundaryClient.Kind.MUNICIPALITY, 16, 8, geometry);
         var verified = boundaries.verify(geometry, new CityBoundaryClient.Query(city.getName(), "IT", city.getLatitude(), city.getLongitude())).orElseThrow();
         assertThat(boundaries.saveAvailable(city.getId(), candidate, verified, winningLease,
                 now.plusSeconds(32), java.time.Duration.ofDays(30))).isTrue();
@@ -226,8 +247,11 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
     }
 
     private City visit() {
-        City city = cities.saveAndFlush(new City(countries.findById("IT").orElseThrow(), "Rome " + UUID.randomUUID(),
-                new CityLocation(new BigDecimal("41.9"), new BigDecimal("12.5"))));
+        return visit("IT", "Rome " + UUID.randomUUID(), new BigDecimal("41.9"), new BigDecimal("12.5"));
+    }
+    private City visit(String countryCode, String name, BigDecimal latitude, BigDecimal longitude) {
+        City city = cities.saveAndFlush(new City(countries.findById(countryCode).orElseThrow(), name,
+                new CityLocation(latitude, longitude)));
         Trip trip = new Trip(currentUser, "Boundary test", null, null);
         trip.addStop(city);
         trips.saveAndFlush(trip);
@@ -235,7 +259,7 @@ class CityBoundaryApiIT extends AuthenticatedIntegrationTestSupport {
     }
     private void candidate(City city, String geometry) {
         when(provider.findCandidates(any())).thenReturn(List.of(new CityBoundaryClient.Candidate("test", "123", Set.of(city.getName()), "IT",
-                CityBoundaryClient.Kind.MUNICIPALITY, CityBoundaryGeometry.fromJson(objectMapper.readTree(geometry)))));
+                CityBoundaryClient.Kind.MUNICIPALITY, 16, 8, CityBoundaryGeometry.fromJson(objectMapper.readTree(geometry)))));
     }
     private void expire(City city) {
         jdbc.sql("UPDATE city_boundaries SET retry_at = CURRENT_TIMESTAMP - INTERVAL '1 second' WHERE city_id = ?").param(city.getId()).update();

@@ -11,8 +11,9 @@ public interface CityBoundaryClient {
 
     record Query(String name, String countryCode, BigDecimal latitude, BigDecimal longitude) {}
 
-    enum Kind { MUNICIPALITY, OTHER }
+    /** Provider-neutral locality classification used by country municipality policies. */
+    enum Kind { CITY, TOWN, VILLAGE, MUNICIPALITY, SUBDIVISION, OTHER }
 
     record Candidate(String provider, String boundaryId, Set<String> names, String countryCode,
-                     Kind kind, CityBoundaryGeometry geometry) {}
+                     Kind kind, int searchRank, int adminLevel, CityBoundaryGeometry geometry) {}
 }

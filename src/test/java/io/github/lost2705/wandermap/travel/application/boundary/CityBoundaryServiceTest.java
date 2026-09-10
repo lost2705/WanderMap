@@ -24,6 +24,8 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.json.JsonMapper;
@@ -45,8 +47,8 @@ class CityBoundaryServiceTest {
     void setUp() {
         var user = mock(UserAccount.class);
         when(users.getCurrentUser()).thenReturn(user);
-        when(stops.existsByCity_IdAndTrip_User_Id(eq(city.getId()), any())).thenReturn(true);
-        when(cities.findByIdWithCountry(city.getId())).thenReturn(Optional.of(city));
+        lenient().when(stops.existsByCity_IdAndTrip_User_Id(eq(city.getId()), any())).thenReturn(true);
+        lenient().when(cities.findByIdWithCountry(city.getId())).thenReturn(Optional.of(city));
         service = service(true);
     }
 
@@ -190,11 +192,97 @@ class CityBoundaryServiceTest {
         verify(client, times(1)).findCandidates(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void amsterdamChoosesTheMunicipalityNotTheWoonplaatsIndependentOfProviderOrder(boolean reverse) {
+        City amsterdam = city("NL", "Netherlands", "Amsterdam", "52.37", "4.90");
+        var municipality = candidate("Amsterdam", "NL", "relation/47811", CityBoundaryClient.Kind.MUNICIPALITY, 14, 8);
+        var woonplaats = candidate("Amsterdam", "NL", "relation/271110", CityBoundaryClient.Kind.CITY, 16, 10);
+
+        resolve(amsterdam, reverse ? List.of(woonplaats, municipality) : List.of(municipality, woonplaats));
+
+        verify(cache).saveAvailable(eq(amsterdam.getId()), argThat(value -> value.boundaryId().equals("relation/47811")),
+                any(), eq(lease), eq(now), eq(CityBoundaryService.POSITIVE_TTL));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void parisChoosesTheCommuneNotTheDepartmentOrArrondissementIndependentOfProviderOrder(boolean reverse) {
+        City paris = city("FR", "France", "Paris", "48.86", "2.35");
+        var department = candidate("Paris", "FR", "relation/71525", CityBoundaryClient.Kind.CITY, 12, 6);
+        var arrondissement = candidate("Paris", "FR", "relation/1641193", CityBoundaryClient.Kind.SUBDIVISION, 14, 7);
+        var commune = candidate("Paris", "FR", "relation/7444", CityBoundaryClient.Kind.SUBDIVISION, 15, 8);
+        var candidates = reverse ? List.of(commune, arrondissement, department) : List.of(department, arrondissement, commune);
+
+        resolve(paris, candidates);
+
+        verify(cache).saveAvailable(eq(paris.getId()), argThat(value -> value.boundaryId().equals("relation/7444")),
+                any(), eq(lease), eq(now), eq(CityBoundaryService.POSITIVE_TTL));
+    }
+
+    @Test
+    void romeAndVaduzKeepTheirCountryMunicipalitySemantics() {
+        City rome = city("IT", "Italy", "Rome", "41.9", "12.5");
+        resolve(rome, List.of(
+                candidate("Rome", "IT", "region", CityBoundaryClient.Kind.OTHER, 8, 4),
+                candidate("Rome", "IT", "metropolitan", CityBoundaryClient.Kind.CITY, 12, 6),
+                candidate("Rome", "IT", "relation/41485", CityBoundaryClient.Kind.CITY, 16, 8)));
+        verify(cache).saveAvailable(eq(rome.getId()), argThat(value -> value.boundaryId().equals("relation/41485")),
+                any(), eq(lease), eq(now), eq(CityBoundaryService.POSITIVE_TTL));
+
+        City vaduz = city("LI", "Liechtenstein", "Vaduz", "47.14", "9.52");
+        resolve(vaduz, List.of(candidate("Vaduz", "LI", "relation/1155956", CityBoundaryClient.Kind.TOWN, 16, 8)));
+        verify(cache).saveAvailable(eq(vaduz.getId()), argThat(value -> value.boundaryId().equals("relation/1155956")),
+                any(), eq(lease), eq(now), eq(CityBoundaryService.POSITIVE_TTL));
+    }
+
+    @Test
+    void malbunAndEquallyPreferredCandidatesRemainUnavailable() {
+        City malbun = city("LI", "Liechtenstein", "Malbun", "47.10", "9.61");
+        resolve(malbun, List.of(candidate("Malbun", "LI", "locality", CityBoundaryClient.Kind.VILLAGE, 16, 10)));
+        verify(cache).saveNegative(malbun.getId(), UNAVAILABLE, lease, now, CityBoundaryService.NEGATIVE_TTL);
+
+        City paris = city("FR", "France", "Paris", "48.86", "2.35");
+        resolve(paris, List.of(
+                candidate("Paris", "FR", "commune-a", CityBoundaryClient.Kind.SUBDIVISION, 15, 8),
+                candidate("Paris", "FR", "commune-b", CityBoundaryClient.Kind.SUBDIVISION, 16, 8)));
+        verify(cache).saveNegative(paris.getId(), UNAVAILABLE, lease, now, CityBoundaryService.NEGATIVE_TTL);
+        verify(cache, never()).saveAvailable(eq(paris.getId()), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void unknownCountriesRetainTheConservativeGenericPolicy() {
+        City example = city("ZZ", "Example", "Example City", "41.9", "12.5");
+        resolve(example, List.of(
+                candidate("Example City", "ZZ", "subdivision", CityBoundaryClient.Kind.SUBDIVISION, 16, 8),
+                candidate("Example City", "ZZ", "rank-outside-generic-window",
+                        CityBoundaryClient.Kind.MUNICIPALITY, 12, 8),
+                candidate("Example City", "ZZ", "municipality", CityBoundaryClient.Kind.MUNICIPALITY, 16, 8)));
+        verify(cache).saveAvailable(eq(example.getId()), argThat(value -> value.boundaryId().equals("municipality")),
+                any(), eq(lease), eq(now), eq(CityBoundaryService.POSITIVE_TTL));
+    }
+
     private CityBoundaryService service(boolean enabled) {
         return new CityBoundaryService(cities, stops, users, cache, client, enabled, Clock.fixed(now, ZoneOffset.UTC));
     }
     private CityBoundaryClient.Candidate candidate(String name, String country, String id, CityBoundaryClient.Kind kind) {
-        return new CityBoundaryClient.Candidate("test", id, Set.of(name), country, kind, geometry());
+        return candidate(name, country, id, kind, 16, 8);
+    }
+    private CityBoundaryClient.Candidate candidate(String name, String country, String id, CityBoundaryClient.Kind kind,
+            int searchRank, int adminLevel) {
+        return new CityBoundaryClient.Candidate("test", id, Set.of(name), country, kind, searchRank, adminLevel, geometry());
+    }
+    private City city(String countryCode, String countryName, String name, String latitude, String longitude) {
+        return new City(new Country(countryCode, countryName), name,
+                new CityLocation(new BigDecimal(latitude), new BigDecimal(longitude)));
+    }
+    private void resolve(City target, List<CityBoundaryClient.Candidate> candidates) {
+        when(stops.existsByCity_IdAndTrip_User_Id(eq(target.getId()), any())).thenReturn(true);
+        when(cities.findByIdWithCountry(target.getId())).thenReturn(Optional.of(target));
+        when(cache.claim(target.getId(), now)).thenReturn(Optional.of(lease));
+        when(client.findCandidates(any())).thenReturn(candidates);
+        when(cache.verify(any(), any())).thenReturn(Optional.of(new CityBoundaryRepository.Verified("original", "display")));
+        service.getBoundary(target.getId());
     }
     private CityBoundaryGeometry geometry() {
         return CityBoundaryGeometry.fromJson(new JsonMapper().readTree("""

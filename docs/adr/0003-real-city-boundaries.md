@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for WanderMap 0.7 Phase 1, 2026-09-06. **Milestone: PARTIAL.** Architecture, persistence, API, rendering and fallback are implemented and tested independently of an upstream. No permitted production endpoint has been configured; real-provider interoperability, representative-city coverage, country-specific administrative accuracy and provider availability are **not yet verified**. No real geometry has been imported as part of development. The synthetic polygons in tests are test data, not claimed city boundaries.
+Accepted for WanderMap 0.7 Phase 1, 2026-09-06. **Milestone: DONE as of 2026-09-10.** Architecture, persistence, API, rendering and fallback remain provider-neutral and disabled by default. A pinned, self-hosted Nominatim 5.3.2 instance was used only for local qualification of the validated NL, FR, IT and LI semantic policies; Amsterdam, Paris, Rome and Vaduz resolve to verified municipal geometry, while Malbun retains the controlled glow fallback. No production endpoint is configured and no worldwide coverage, cross-country municipality ontology or provider-availability guarantee is claimed.
 
 0.6 Agentic Trip Planner Phases 1, 2 and 3 are DONE and merged through PR #22. This work starts from its source HEAD `465509a` on `develop`; the PR's merge commit on `main` is `941752a`.
 
@@ -45,9 +45,24 @@ Disabled mode starts normally and makes **zero external calls**. Existing persis
 
 ## Boundary semantics and trusted matching
 
-Phase 1 means an OSM administrative municipality/locality polygon classified by the provider as city, town, village or municipality. It does not mean built-up land, a metropolitan region, a travel footprint, a jurisdictional/legal guarantee, or an official government endorsement of OSM data.
+Phase 1 means the administrative relation representing the named municipality/local government area that contains the canonical visited City point. It does not mean a merely registered settlement or `woonplaats`, built-up land, neighbourhood, district/arrondissement, department/province, metropolitan region, travel footprint, jurisdictional/legal guarantee, or official government endorsement of OSM data.
 
-The adapter requests documented `jsonv2` search output (`category`, not legacy JSON `class`), polygon GeoJSON, address/name/extra tags, English display names, an exact country filter and at most eight candidates. It requires an administrative **relation**, a locality `addresstype`, a search rank in 13–18, and an explicit admin level in 4–10. Those are conservative rejection guards, not a universal rule that a numeric level represents a city. Rank interpretation is documented in [Nominatim ranking](https://nominatim.org/release-docs/latest/customize/Ranking/); cross-country classification accuracy remains unverified. Missing metadata, region/country/suburb classes, unsupported shapes and ambiguous matches do not become invented boundaries. A full result page is treated as indeterminate instead of silently selecting from a possibly incomplete candidate set. There is no pagination, details scraping or name-only first-result selection.
+The adapter requests documented `jsonv2` search output (`category`, not legacy JSON `class`), polygon GeoJSON, address/name/extra tags, English display names, an exact country filter and at most eight candidates. It performs provider-format and structural rejection: an administrative **relation**, an explicit integral search rank and admin level, bounded classification fields, and Polygon/MultiPolygon geometry are required. It does not decide that one universal rank or admin level means municipality. Nominatim documents that its OSM category/type classifications follow tagging and are not a stable cross-country taxonomy; OSM administrative levels are country-specific. A full result page is treated as indeterminate instead of silently selecting from a possibly incomplete candidate set. There is no pagination, details scraping or name-only first-result selection.
+
+Stage B demonstrated why the former universal locality/rank gate was insufficient. Amsterdam returned both relation 47811 (the `gemeente`, admin level 8, rank 14) and relation 271110 (the `woonplaats`, admin level 10, rank 16); both names and geometries passed, so treating both locality-shaped results as equal produced a false ambiguity. Paris exposed a different mismatch: provider `addresstype` and rank do not reliably encode the commune boundary, while the same name can also identify the department and subdivisions. Widening the rank interval or selecting the first result would admit broader or narrower polygons.
+
+Stage C therefore applies a small provider-neutral `MunicipalityBoundaryPolicy` after trusted name/country checks and before the existing PostGIS verification. The validated policies are intentionally limited to:
+
+| Country | Accepted municipal semantics | Explicitly not selected |
+| --- | --- | --- |
+| NL | admin level 8 municipality (`gemeente`) | admin level 10 `woonplaats`/settlement |
+| FR | admin level 8 commune, including a provider result classified as a subdivision | department, region and arrondissement/district candidates |
+| IT | admin level 8 `comune` | province/metropolitan city and region |
+| LI | admin level 8 `Gemeinde` | subordinate settlement/locality polygons |
+
+Within an accepted country rule, explicit municipality classification is preferred over city/town/village classification where both describe the same allowed municipal level. The French commune allowance is deliberately lower priority than an explicit municipal classification. Candidates still have to match the canonical bounded name set and country, then pass `ST_IsValid`, nonempty geometry, and `ST_Covers` for the canonical point. Selection is the unique highest semantic preference only. Provider order, area, centroid distance, or numeric rank alone never breaks a tie; equally preferred distinct candidates remain UNAVAILABLE. Duplicate copies of the same source identity are coalesced only when all candidate metadata and geometry agree.
+
+Unknown countries retain a conservative generic policy: only city/town/village/municipality relations with an explicit admin level from 4 through 10 and rank from 13 through 18 are eligible. This fallback is not a claim of worldwide municipality semantics. If exactly one safe best candidate cannot be established, the API returns UNAVAILABLE and the existing visited-place glow remains visible.
 
 The application checks the canonical country code and normalized City name against bounded current `name`/`name:*` fields (not historic names or arbitrary display addresses). Then PostGIS must establish `ST_IsValid`, nonempty geometry, and `ST_Covers(geometry, canonical point)`. Covers includes a point exactly on the edge and rejects points in holes or outside disconnected components ([PostGIS Covers](https://postgis.net/docs/ST_Covers.html)). More than one distinct verified source identity is ambiguous and falls back; duplicate copies of an identical source object are coalesced. Contradictory geometry under the same source identity is a temporary response failure.
 
@@ -62,6 +77,8 @@ Display simplification uses `ST_SimplifyPreserveTopology` with a single **0.0001
 Limits: 3 MB upstream bytes, JSON depth 16, strings 4,096 characters, number tokens 40 characters, 25,000 original positions; display at most 10,000 positions and 500,000 bytes. Oversized or malformed upstream payloads produce a temporary failure, not established absence. Invalid/noncontaining topology or excessive display complexity produces no acceptable geometry. Tests exercise real PostGIS topology and persistence rather than mocking these predicates.
 
 Positive cache: 30 days. Established no-match/ambiguity: 1 day. Temporary provider/network/parse failure: 5 minutes. Expired entries retry lazily on demand; no scheduler, preload or background fetcher exists. An atomic insert/upsert takes a 30-second refresh lease, so concurrent cache misses normally share one lookup; a crashed process becomes retryable. No database transaction or row lock spans external HTTP. Cache writes are atomic statements. A failed refresh retains the last verified geometry and the API reports AVAILABLE with `stale=true`; without geometry it reports TEMPORARILY_UNAVAILABLE. Successful no-match refresh clears obsolete geometry. A deployer should coordinate provider capacity across replicas; the adapter's conservative 15-second request-admission interval is per instance, not an aggregate fleet quota.
+
+Stage C adds no persistent semantic-version column. V13 performs a targeted one-time rollout invalidation by deleting complete boundary-cache rows whose canonical City country is NL, FR, IT or LI. This includes both positive rows, which may contain a different administrative relation accepted by the former generic resolver, and negative rows, which may be false negatives under the country-aware policy. Boundary cache is reconstructable derived data, so the next demand-driven request requalifies those cities under the new semantics. Countries outside the four changed policies remain untouched; normal 30-day positive, one-day negative and five-minute temporary TTL behavior is unchanged after migration.
 
 ## API, privacy and HTTP safety
 
@@ -96,15 +113,15 @@ Responsive shell, keyboard navigation, focus traps, Appearance control, Memory a
 
 ## Licensing and operational limits
 
-OSM data is ODbL. The new source supplies a visible MapLibre attribution entry linking to the OSM copyright/license page and naming city boundaries. Operators distributing OSM-derived data must also comply with applicable database/license obligations, and review any extra provider terms. [OSM copyright and attribution](https://www.openstreetmap.org/copyright). Attribution visibility on desktop/mobile still needs real browser verification; existing attribution styling was not changed.
+OSM data is ODbL. The new source supplies a visible MapLibre attribution entry linking to the OSM copyright/license page and naming city boundaries. Operators distributing OSM-derived data must also comply with applicable database/license obligations, and review any extra provider terms. [OSM copyright and attribution](https://www.openstreetmap.org/copyright). Local browser qualification confirmed the boundary attribution with Amsterdam and Paris geometry; mobile presentation was not separately requalified in Stage C. Existing attribution styling was not changed.
 
-There is no source SLA, verified representative-city coverage matrix, live-provider smoke, municipality-level guarantee across countries, background repair/import, spatial search endpoint, admin-boundary editor, vector tile pipeline or provider marketplace. Antimeridian normalization and country-specific source adapters are deferred. Refresh lease fencing was completed by the focused audit below. Geometry is geographic context and must not be used for legal boundaries.
+There is no production source SLA, broad real-world coverage matrix, municipality-level guarantee outside the validated country policies, background repair/import, spatial search endpoint, admin-boundary editor, vector tile pipeline or provider marketplace. Antimeridian normalization and additional country policies/adapters are deferred. Refresh lease fencing was completed by the focused audit below. Geometry is geographic context and must not be used for legal boundaries.
 
-## Verification and remaining work
+## Initial verification and remaining work — 2026-09-06
 
 New tests cover disabled mode, positive/negative/expired cache, outage/stale retention, exact identity, ambiguous/wrong candidates, malformed/oversized/timeout payloads, Polygon/MultiPolygon/holes, PostGIS validity/Covers/SRID/simplification, persistence across repository recreation, auth/ownership/deletion, bounded frontend loading, fallback, route/Journey regressions, all theme tokens, style reload, one canvas, late session responses and cleanup. CI uses a fake client or loopback HTTP server only; no live boundary provider is called.
 
-Real City Boundaries stays **PARTIAL** until a permitted provider is configured and Rome, Amsterdam, Paris, multipart/island examples and unavailable examples are checked in an authenticated browser on desktop/mobile. The attempted local browser at `http://127.0.0.1:5174/` returned `net::ERR_CONNECTION_REFUSED`; no map visual smoke is claimed. The local app was not running during this check.
+At that point Real City Boundaries stayed **PARTIAL** pending real-provider and authenticated visual qualification. The initial browser attempt at `http://127.0.0.1:5174/` returned `net::ERR_CONNECTION_REFUSED`; no visual result was claimed for that run. Stage C results are recorded below.
 
 Verification on 2026-09-06: `mvnw.cmd --batch-mode verify` passed with **242 unit tests + 89 PostgreSQL/PostGIS integration tests**, no failures/errors/skips. `npm run typecheck`, `npm test -- --run` (**290 tests, 28 files**) and `npm run build` passed. `git diff --check` and `git diff --cached --check` passed; new untracked files were also scanned for trailing whitespace. New boundary-specific coverage adds 43 backend unit cases, 10 integration cases and 16 frontend cases. Production JavaScript is 1,255.13 kB / 336.83 kB gzip, versus the previously recorded 1,247.90 / 334.80 kB (+7.23 / +2.03 kB); the existing >500 kB chunk warning remains. These tests and bounded synthetic stress cases are not real-provider latency/coverage or browser frame-rate measurements.
 
@@ -175,3 +192,58 @@ src/test/java/io/github/lost2705/wandermap/CityBoundaryDisabledApiIT.java
 src/test/java/io/github/lost2705/wandermap/travel/application/boundary/CityBoundaryServiceTest.java
 src/test/java/io/github/lost2705/wandermap/travel/infrastructure/boundary/NominatimBoundaryClientTest.java
 ```
+
+## Stage C country-aware boundary resolution — 2026-09-10
+
+**Verdict: 0.7 Phase 1 Real City Boundaries — DONE.** The milestone acceptance set now has deterministic automated coverage plus local real-provider and browser qualification. External lookup remains disabled by default and no production provider or worldwide coverage promise is introduced.
+
+### Root cause and final semantics
+
+The original resolver treated all locality-shaped administrative relations within one universal Nominatim rank interval as semantically equal. That produced a false ambiguity between Amsterdam's municipality and `woonplaats`, while Paris showed that provider `addresstype`/rank alone do not identify the commune and can also expose department or district objects with the same name.
+
+WanderMap now defines a City Boundary as the administrative relation representing the named municipality/local government area containing the canonical visited City point. It excludes metropolitan areas, regions, departments/provinces, districts/arrondissements, neighbourhoods and merely registered settlement/`woonplaats` boundaries. This definition is implemented as country policy, not inferred from one universal `admin_level`, search rank or provider result order.
+
+### Country policy and deterministic selection
+
+- **NL:** admin level 8 municipality (`gemeente`); admin level 10 `woonplaats` is rejected.
+- **FR:** admin level 8 commune; the known provider subdivision classification is accepted at that municipal level, while department and district/arrondissement candidates are rejected.
+- **IT:** admin level 8 `comune`; province/metropolitan-city and region candidates are rejected.
+- **LI:** admin level 8 `Gemeinde`; subordinate locality candidates are rejected.
+- **Other countries:** the previous conservative generic locality policy remains: relation, city/town/village/municipality kind, rank 13–18 and admin level 4–10. It is explicitly a safe fallback, not a worldwide municipality ontology.
+
+The provider adapter remains responsible only for bounded Nominatim-compatible parsing and provider-neutral candidate metadata. The application policy rejects semantically impossible candidates and assigns a small explicit preference. Existing exact name/country, source identity and PostGIS validity/coverage checks still apply. A result is selected only when it is the unique highest semantic preference; an equal best score remains UNAVAILABLE. Area, centroid, numeric rank and provider order never break ambiguity.
+
+### Acceptance evidence
+
+| Place | Result | Evidence |
+| --- | --- | --- |
+| Amsterdam, NL | AVAILABLE | relation 47811, municipality, rank 14, admin 8 selected over relation 271110, `woonplaats`/city, rank 16, admin 10 |
+| Paris, FR | AVAILABLE | commune relation 7444, rank 15, admin 8 selected; department relation 71525, rank 12/admin 6 and district relation 1641193, rank 14/admin 7 rejected |
+| Rome, IT | AVAILABLE | `comune` relation 41485, rank 16, admin 8 retained; broader Italian levels remain ineligible |
+| Vaduz, LI | AVAILABLE | Gemeinde relation 1155956, admin 8 regression remains passing, including MultiPolygon GIS behavior |
+| Malbun, LI | UNAVAILABLE | no acceptable named municipality candidate; existing visited-place glow remains the honest fallback |
+| Equal-best ambiguity | UNAVAILABLE | deterministic regression proves provider order cannot pick a winner |
+
+The final local smoke used the pinned `mediagis/nominatim` 5.3.2 image by digest, loopback port 8095 and retained regional admin-only datasets. It did not call public OSMF Nominatim. Fresh targeted cache qualification produced:
+
+| Place | First / second status | Provider calls | First / cached latency | Stored geometry |
+| --- | --- | --- | --- | --- |
+| Amsterdam | AVAILABLE / AVAILABLE | 1 → 2 → 2 | 611.1 ms / 15.8 ms | valid covering MultiPolygon, relation 47811 |
+| Paris | AVAILABLE / AVAILABLE | 1 → 2 → 2 | 397.5 ms / 14.3 ms | valid covering MultiPolygon, relation 7444 |
+| Rome | AVAILABLE / AVAILABLE | 3 → 4 → 4 | 412.6 ms / 20.8 ms | valid covering MultiPolygon, relation 41485 |
+
+The unchanged PostGIS persistence stored all three as EPSG:4326 MultiPolygons, `ST_IsValid=true` and `ST_Covers(canonical City point)=true`. Second requests added no provider call, proving persistent positive-cache reuse after requalification. During the original smoke, only each test City's local cache row was invalidated. For deployment rollout, V13 now invalidates all existing positive and negative boundary rows for NL, FR, IT and LI once, while leaving every other country's cache intact; subsequent lazy lookups repopulate verified results.
+
+Authenticated browser qualification rendered the restrained real municipality polygons for Amsterdam and Paris at close World zoom, suppressed each City's approximate glow, kept clusters/markers and the single MapLibre canvas, opened exact Place Details from the Amsterdam polygon, and displayed `© OpenStreetMap contributors (city boundaries, ODbL)`. No frontend file changed in Stage C.
+
+### Tests, verification and limits
+
+Focused regressions cover Amsterdam/Paris candidate sets in both provider orders, Rome and Vaduz preservation, Malbun-like no-match, equal-best ambiguity, unknown-country conservative behavior, and Nominatim parsing of the provider-neutral rank/admin/kind metadata. Final backend verification passed **269 unit + 92 PostgreSQL/PostGIS integration tests**, zero failures/errors/skips, including fresh V1→V12 migrations. Frontend confidence verification passed typecheck, **294 tests in 28 files**, and production build; the existing chunk-size warning is unchanged. CI still uses fixtures, fake clients or loopback servers and never calls a live boundary provider.
+
+Validated semantic policy scope is only NL, FR, IT and LI. Production provider availability, broad real-world coverage, admin-level correctness in other countries and mobile visual presentation are not claimed. Unknown or ambiguous places continue to return controlled UNAVAILABLE and use the existing glow. There are **0 BLOCKER, 0 MAJOR and 0 MINOR** outstanding findings within Stage C acceptance; future country expansion remains explicit deferred work rather than implicit guessing.
+
+### PR #24 cache rollout correction — 2026-09-10
+
+Review found that a fresh 30-day AVAILABLE row could bypass the new `MunicipalityBoundaryPolicy`, so expiry of negative entries alone was insufficient rollout protection. V13 uses `DELETE ... USING cities` to remove only `city_boundaries` rows linked to canonical City country codes NL, FR, IT and LI. It deletes no City, Country, Journey, TripStop or user data and makes no provider call. Both positive and negative rows are removed because either can encode a decision made by the former generic policy.
+
+Migration integration coverage runs an isolated schema to V12, inserts populated positive and negative affected rows plus Journey/TripStop references, then upgrades to V13 and verifies only cache rows disappear. A separate US case verifies an unaffected cache row and City remain. The normal application migration run verifies a fresh V1→V13 chain, and an authenticated API integration regression verifies that an Amsterdam cache miss invokes the fake provider, applies the country policy, persists relation 47811 and serves the second request from cache. Final verification passed 269 unit and 95 PostgreSQL/PostGIS integration tests; frontend typecheck, 294 tests in 28 files and production build also passed. No runtime semantic-version column, TTL, resolver scoring, provider parsing, frontend code or endpoint contract changed.
